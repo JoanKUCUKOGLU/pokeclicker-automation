@@ -1,23 +1,19 @@
 // Stub of https://github.com/pokeclicker/pokeclicker/blob/77f2cbf57897a30ff0542fc10d187cc34b305fb3/src/scripts/towns/Town.ts#L13
-class Town
-{
-    // Stipped: optional
-    constructor(name, region, content = [])
-    {
-        this.name = name;
-        this.region = region;
-        this.content = content;
+class Town {
+  // Stipped: optional
+  constructor(name, region, content = []) {
+    this.name = name;
+    this.region = region;
+    this.content = content;
 
-        this.__isUnlocked = true;
+    this.__isUnlocked = true;
 
-        for (const contentElem of this.content)
-        {
-            contentElem.addParent(this);
-        }
+    for (const contentElem of this.content) {
+      contentElem.addParent(this);
     }
+  }
 
-    isUnlocked()
-    {
-        return this.__isUnlocked;
-    }
+  isUnlocked() {
+    return this.__isUnlocked;
+  }
 }

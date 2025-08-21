@@ -1,21 +1,19 @@
 // Add a map compare method
-expect.extend(
-{
-    toBeEqualToRange(received, expected)
-    {
-        let errorBuffer = "";
+expect.extend({
+  toBeEqualToRange(received, expected) {
+    let errorBuffer = "";
 
-        for (const [ index, data ] of received.entries())
-        {
-            let expectedData = (expected instanceof Map) ? expected.get(index) : expected[index];
-            if (expectedData != data)
-            {
-                errorBuffer += `Data at index '${index}' does not match\n`
-                             + `  Expected:\n${JSON.stringify(expectedData)}\n`
-                             + `  Actual:\n${JSON.stringify(data)}\n`;
-            }
-        }
-
-        return { message: () => `${errorBuffer}`, pass: (errorBuffer == "") };
+    for (const [index, data] of received.entries()) {
+      let expectedData =
+        expected instanceof Map ? expected.get(index) : expected[index];
+      if (expectedData != data) {
+        errorBuffer +=
+          `Data at index '${index}' does not match\n` +
+          `  Expected:\n${JSON.stringify(expectedData)}\n` +
+          `  Actual:\n${JSON.stringify(data)}\n`;
+      }
     }
+
+    return { message: () => `${errorBuffer}`, pass: errorBuffer == "" };
+  },
 });
