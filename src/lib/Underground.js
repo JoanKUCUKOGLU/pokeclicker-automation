@@ -21,6 +21,7 @@ class AutomationUnderground {
       // Enable safe bombs usage by default
       Automation.Utils.LocalStorage.setDefaultValue(
         this.Settings.SafeBombs,
+        this.Settings.AutoSellTreasures,
         true
       );
 
@@ -154,6 +155,17 @@ class AutomationUnderground {
       safeBombsTooltip,
       miningSettingPanel
     );
+
+    const autoSellTooltip =
+      "If enabled, auto sell treasures" +
+      Automation.Menu.TooltipSeparator +
+      "salut ça va?";
+    Automation.Menu.addLabeledAdvancedSettingsToggleButton(
+      "Auto sell Treasures",
+      this.Settings.AutoSellTreasures,
+      autoSellTooltip,
+      miningSettingPanel
+    );
   }
 
   /**
@@ -207,8 +219,8 @@ class AutomationUnderground {
           this.__internal__innerMiningLoop = null;
         }
       }.bind(this),
-      300
-    ); // Runs every 0.3s
+      50
+    ); // Runs every 0.05s
   }
 
   /**
