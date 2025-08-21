@@ -2,12 +2,13 @@
  * @class The AutomationUnderground regroups the 'Mining' functionalities
  *
  * @note The underground is not accessible right away when starting a new game.
- *       This menu will be hidden until the functionality is unlocked in-game.
+ *       This menu will be hidden until the functionality is unlocked in-game.
  */
 class AutomationUnderground {
   static Settings = {
     FeatureEnabled: "Mining-Enabled",
     SafeBombs: "Mining-SafeBombs",
+    AutoSellTreasures: "Mining-AutoSell",
   };
 
   /**
@@ -39,7 +40,7 @@ class AutomationUnderground {
    * If the feature was disabled and it's toggled to enabled, the loop will be started.
    *
    * @param enable: [Optional] If a boolean is passed, it will be used to set the right state.
-   *                Otherwise, the local storage value will be used
+   *                Otherwise, the local storage value will be used
    */
   static toggleAutoMining(enable) {
     if (!App.game.underground.canAccess()) {
@@ -80,7 +81,7 @@ class AutomationUnderground {
   }
 
   /*********************************************************************\
-    |***    Internal members, should never be used by other classes    ***|
+    |***    Internal members, should never be used by other classes    ***|
     \*********************************************************************/
 
   static __internal__undergroundContainer = null;
@@ -170,7 +171,7 @@ class AutomationUnderground {
 
   /**
    * @brief Watches for the in-game functionality to be unlocked.
-   *        Once unlocked, the menu will be displayed to the user
+   *        Once unlocked, the menu will be displayed to the user
    */
   static __internal__setUndergroundUnlockWatcher() {
     let watcher = setInterval(
@@ -200,6 +201,9 @@ class AutomationUnderground {
       return;
     }
 
+    // Call the auto-sell function before starting the mining process
+    this.__internal__autoSellTreasures();
+
     this.__internal__actionCount = 0;
     this.__internal__innerMiningLoop = setInterval(
       function () {
@@ -224,16 +228,51 @@ class AutomationUnderground {
   }
 
   /**
+   * @brief Manages the automatic selling of treasures
+   */
+  static __internal__autoSellTreasures() {
+    // Only proceed if the feature is enabled by the user
+    if (
+      Automation.Utils.LocalStorage.getValue(
+        this.Settings.AutoSellTreasures
+      ) === "true"
+    ) {
+      // Get the treasures that can be sold
+      const treasures = App.game.underground.mine.getTreasures();
+      const sellableTreasures = treasures.filter((t) => t.isTreasure);
+
+      // If there are treasures to sell, proceed
+      if (sellableTreasures.length > 0) {
+        this.__internal__sellAllTreasures(sellableTreasures);
+        Automation.Notifications.sendNotif(
+          `Trésors vendus automatiquement.`,
+          "Mining"
+        );
+      }
+    }
+  }
+
+  /**
+   * @brief Sells all treasures
+   */
+  static __internal__sellAllTreasures(treasures) {
+    if (App.game.underground) {
+      // Call the in-game function to sell treasures
+      App.game.underground.sellTreasures(treasures.map((t) => t.id));
+    }
+  }
+
+  /**
    * @brief The inner Mining loop - Automatically mines item in the underground.
    *
    * The following strategy is used:
-   *   - Use a survey if available, unless all items were already found
-   *   - Use the batterie discharge if available
-   *   - Use a bomb if available, unless all items were already found
-   *   - Use a bomb regardless, if its durability is maxed out, unless the tool reached infinite use
-   *   - Tries to use the best possible tool to:
-   *     - Complete a partially found item (@see __internal__tryUseBestToolOnPartiallyFoundItem)
-   *     - Find a new item (@see __internal__tryUseBestToolToFindNewItem)
+   *   - Use a survey if available, unless all items were already found
+   *   - Use the batterie discharge if available
+   *   - Use a bomb if available, unless all items were already found
+   *   - Use a bomb regardless, if its durability is maxed-out, unless the tool reached infinite use
+   *   - Tries to use the best possible tool to:
+   *     - Complete a partially found item (@see __internal__tryUseBestToolOnPartiallyFoundItem)
+   *     - Find a new item (@see __internal__tryUseBestToolToFindNewItem)
    *
    * @return True if an action occured, false otherwise
    */
@@ -506,7 +545,7 @@ class AutomationUnderground {
    * @brief Extracts every items data
    *
    * @returns The map of item's [ Id, Cells ]
-   *          Where Cells is an object containing a cells list of { cell, coord, isRevealed }
+   *          Where Cells is an object containing a cells list of { cell, coord, isRevealed }
    */
   static __internal__getAllItems() {
     let items = new Map();
