@@ -201,9 +201,6 @@ class AutomationUnderground {
       return;
     }
 
-    // Call the auto-sell function before starting the mining process
-    this.__internal__autoSellTreasures();
-
     this.__internal__actionCount = 0;
     this.__internal__innerMiningLoop = setInterval(
       function () {
@@ -225,41 +222,6 @@ class AutomationUnderground {
       }.bind(this),
       50
     ); // Runs every 0.05s
-  }
-
-  /**
-   * @brief Manages the automatic selling of treasures
-   */
-  static __internal__autoSellTreasures() {
-    // Only proceed if the feature is enabled by the user
-    if (
-      Automation.Utils.LocalStorage.getValue(
-        this.Settings.AutoSellTreasures
-      ) === "true"
-    ) {
-      // Get the treasures that can be sold
-      const treasures = App.game.underground.mine.getTreasures();
-      const sellableTreasures = treasures.filter((t) => t.isTreasure);
-
-      // If there are treasures to sell, proceed
-      if (sellableTreasures.length > 0) {
-        this.__internal__sellAllTreasures(sellableTreasures);
-        Automation.Notifications.sendNotif(
-          `Trésors vendus automatiquement.`,
-          "Mining"
-        );
-      }
-    }
-  }
-
-  /**
-   * @brief Sells all treasures
-   */
-  static __internal__sellAllTreasures(treasures) {
-    if (App.game.underground) {
-      // Call the in-game function to sell treasures
-      App.game.underground.sellTreasures(treasures.map((t) => t.id));
-    }
   }
 
   /**
