@@ -31,7 +31,7 @@ class AutomationClick {
       // Default to the app hard-cap for click attacks
       Automation.Utils.LocalStorage.setDefaultValue(
         this.Settings.ClickInterval,
-        50
+        this.__interval__minimumClickInterval
       );
 
       this.__internal__buildMenu();
@@ -83,6 +83,7 @@ class AutomationClick {
   static __internal__autoClickLoop = null;
   static __internal__container = null;
   static __internal__activeTimeouts = new Map();
+  static __interval__minimumClickInterval = 1;
 
   /**
    * @brief Builds the menu
@@ -92,7 +93,7 @@ class AutomationClick {
 
     // Add auto click button
     const autoClickTooltip =
-      "Attack clicks are performed every 50ms" +
+      "Attack clicks are performed every 1ms" +
       Automation.Menu.TooltipSeparator +
       "Applies to battle, gym and dungeon";
     const autoClickButton = Automation.Menu.addAutomationButton(
@@ -169,7 +170,7 @@ class AutomationClick {
     // Add tooltip
     const clickIntervalTooltip =
       "Set the interval between each click in milliseconds.\n";
-    ("Note that the game has a minimum hard-cap of 50ms");
+    ("Note that the game has a minimum hard-cap of 1ms");
     clickIntervalContainer.classList.add("hasAutomationTooltip");
     clickIntervalContainer.classList.add(
       "clickAttackIntervalAutomationTooltip"
@@ -186,7 +187,7 @@ class AutomationClick {
     );
     clickIntervalInput.innerHTML = Automation.Utils.tryParseInt(
       Automation.Utils.LocalStorage.getValue(this.Settings.ClickInterval),
-      50
+      this.__interval__minimumClickInterval
     );
     clickIntervalInput.style.margin = "0px 4px";
     clickIntervalInput.style.textAlign = "left";
@@ -256,7 +257,7 @@ class AutomationClick {
   static __internal__resetClickLoop() {
     const clickInterval = Automation.Utils.tryParseInt(
       Automation.Utils.LocalStorage.getValue(this.Settings.ClickInterval),
-      50
+      this.__interval__minimumClickInterval
     );
 
     if (this.__internal__autoClickLoop != null) {
@@ -271,7 +272,7 @@ class AutomationClick {
   }
 
   /**
-   * @brief Ensures that a valid click interval was entered (ie. an integer greater or equal to 50)
+   * @brief Ensures that a valid click interval was entered (ie. an integer greater or equal to 1)
    *
    * @param {Element} inputElem: The input element
    * @param {Element} checkmarkElem: The checkmark element
@@ -279,14 +280,14 @@ class AutomationClick {
   static __internal__clickIntervalOnInputCallback(inputElem, checkmarkElem) {
     const invalidTimeoutKey = "invalid";
 
-    if (inputElem.innerText < 50) {
+    if (inputElem.innerText < this.__interval__minimumClickInterval) {
       inputElem.classList.add("invalid");
       // Let the time to the user to edit the value before setting back the minimum possible value
       const timeout = setTimeout(
         function () {
           // Only update the value if it's still under the minimum possible
-          if (inputElem.innerText < 50) {
-            inputElem.innerText = 50;
+          if (inputElem.innerText < this.__interval__minimumClickInterval) {
+            inputElem.innerText = this.__interval__minimumClickInterval;
             inputElem.classList.remove("invalid");
 
             // Move the cursor at the end of the input if still focused
@@ -340,7 +341,10 @@ class AutomationClick {
         // Save the click interval value
         Automation.Utils.LocalStorage.setValue(
           this.Settings.ClickInterval,
-          Automation.Utils.tryParseInt(inputElem.innerText, 50)
+          Automation.Utils.tryParseInt(
+            inputElem.innerText,
+            this.__interval__minimumClickInterval
+          )
         );
 
         // Reset the feature loop
