@@ -44,7 +44,6 @@ class AutomationComponentLoader {
     this.__addScript("src/lib/Instances/BattleFrontier.js");
     this.__addScript("src/lib/Instances/Dungeon.js");
     this.__addScript("src/lib/Instances/Gym.js");
-    this.__addScript("src/lib/Instances/Safari.js");
 
     this.__addScript("src/lib/Click.js");
     this.__addScript("src/lib/Farm.js");
