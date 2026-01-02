@@ -1301,10 +1301,6 @@ class AutomationMenu {
             {
                 left: calc(100% - 15px);
             }
-            .hasAutomationTooltip.safariAutomationTooltip::after
-            {
-                left: calc(100% - 21px);
-            }
             .hasAutomationTooltip.clickAttackIntervalAutomationTooltip::after
             {
                 left: calc(50% - 20px);
