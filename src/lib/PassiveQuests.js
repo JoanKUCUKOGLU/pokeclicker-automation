@@ -96,11 +96,6 @@ class AutomationPassiveQuests {
      * (logique Focus)
      * ================================ */
     this.__internal__selectNewQuests();
-
-    /* ================================
-     * 5) Ensure background automations
-     * ================================ */
-    this.__internal__ensureAutomationForQuests(passiveQuests);
   }
 
   /**
