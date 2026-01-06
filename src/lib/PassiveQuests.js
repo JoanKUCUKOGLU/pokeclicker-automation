@@ -92,16 +92,13 @@ class AutomationPassiveQuests {
      * 1) Claim completed quests
      * (logique Focus)
      * ================================ */
-    quests.claimCompletedQuests();
+    this.__internal__claimCompletedQuests();
 
     /* ================================
      * 2) Fill quest slots if possible
      * (logique Focus)
      * ================================ */
-    let safety = 5; // évite toute boucle infinie
-    while (quests.canStartNewQuest() && safety-- > 0) {
-      quests.beginQuest();
-    }
+    this.__internal__selectNewQuests();
 
     const currentQuests = quests.currentQuests();
 
@@ -124,6 +121,51 @@ class AutomationPassiveQuests {
      * 5) Ensure background automations
      * ================================ */
     this.__internal__ensureAutomationForQuests(passiveQuests);
+  }
+
+  /**
+   * @brief Claims any completed quest reward
+   */
+  static __internal__claimCompletedQuests() {
+    for (const [index, quest] of App.game.quests.questList().entries()) {
+      if (quest.isCompleted() && !quest.claimed()) {
+        App.game.quests.claimQuest(index);
+      }
+    }
+  }
+
+  /**
+   * @brief Chooses new quests to perform
+   *
+   * @see __internal__sortQuestByPriority for the quest selection strategy
+   */
+  static __internal__selectNewQuests() {
+    if (!App.game.quests.canStartNewQuest()) {
+      return;
+    }
+
+    // Only consider quests that:
+    //   - Are not already completed
+    //   - Are not already in progress
+    //   - Are not disabled by the user
+    let availableQuests = App.game.quests.questList().filter((quest) => {
+      return (
+        !quest.isCompleted() &&
+        !quest.inProgress() &&
+        Automation.Utils.LocalStorage.getValue(
+          this.__internal__advancedSettings.QuestEnabled(quest.constructor.name)
+        ) == "true"
+      );
+    }, this);
+
+    // Sort quest to group the same type together
+    availableQuests.sort(this.__internal__sortQuestByPriority, this);
+
+    for (const quest of availableQuests) {
+      if (App.game.quests.canStartNewQuest()) {
+        quest.begin();
+      }
+    }
   }
 
   /**
