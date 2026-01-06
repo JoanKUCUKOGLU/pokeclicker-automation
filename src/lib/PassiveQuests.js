@@ -31,7 +31,7 @@ class AutomationPassiveQuests {
       "without taking control of the game.";
 
     const button = Automation.Menu.addAutomationButton(
-      "Passive Quests",
+      "Free Quests",
       this.Settings.FeatureEnabled,
       tooltip
     );
@@ -65,7 +65,7 @@ class AutomationPassiveQuests {
 
     this.__internal__loop = setInterval(
       this.__internal__loopBody.bind(this),
-      1500
+      500
     );
 
     this.__internal__loopBody();
