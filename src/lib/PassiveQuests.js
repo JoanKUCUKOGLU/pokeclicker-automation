@@ -98,7 +98,8 @@ class AutomationPassiveQuests {
     /* ================================
      * 3) Skip if no quests remaining
      * ================================ */
-    this.__internal__skipRemainingQuests();
+    if (this.__internal__getFilteredCurrentQuests() == 0)
+      this.__internal__skipRemainingQuests();
   }
 
   /**
@@ -177,6 +178,23 @@ class AutomationPassiveQuests {
       "Focus",
       "Quests"
     );
+  }
+
+  /**
+   * @returns The current quests list, without the user disabled ones
+   */
+  static __internal__getFilteredCurrentQuests() {
+    return App.game.quests
+      .currentQuests()
+      .filter(
+        (quest) =>
+          Automation.Utils.LocalStorage.getValue(
+            this.__internal__advancedSettings.QuestEnabled(
+              quest.constructor.name
+            )
+          ) == "true",
+        this
+      );
   }
 
   /**
