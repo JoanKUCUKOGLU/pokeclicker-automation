@@ -87,15 +87,18 @@ class AutomationPassiveQuests {
 
     /* ================================
      * 1) Claim completed quests
-     * (logique Focus)
      * ================================ */
     this.__internal__claimCompletedQuests();
 
     /* ================================
      * 2) Fill quest slots if possible
-     * (logique Focus)
      * ================================ */
     this.__internal__selectNewQuests();
+
+    /* ================================
+     * 3) Skip if no quests remaining
+     * ================================ */
+    this.__internal__skipRemainingQuests();
   }
 
   /**
@@ -139,6 +142,41 @@ class AutomationPassiveQuests {
         quest.begin();
       }
     }
+  }
+
+  /**
+   * @brief Skips the remaining quest, if they were skipped by the user
+   */
+  static __internal__skipRemainingQuests() {
+    // Make sure some quests were not completed (ie. excluded ones)
+    let availableQuests = App.game.quests.questList().filter((_, index) => {
+      let quest = App.game.quests.questList()[index];
+      return !quest.isCompleted() && !quest.inProgress();
+    });
+    if (availableQuests.length == 0) {
+      return;
+    }
+
+    // Make sure the player can afford the refresh
+    if (!App.game.quests.freeRefresh() && !App.game.quests.canAffordRefresh()) {
+      // Go farm some money
+      this.__internal__farmSomeMoney();
+      return;
+    }
+
+    let pokedollarsImage =
+      '<img src="assets/images/currency/money.svg" height="25px">';
+    let refreshCost = App.game.quests.freeRefresh()
+      ? "free"
+      : `${App.game.quests.getRefreshCost().amount} ${pokedollarsImage}`;
+
+    App.game.quests.refreshQuests();
+
+    Automation.Notifications.sendNotif(
+      `Skipped disabled quests for ${refreshCost}`,
+      "Focus",
+      "Quests"
+    );
   }
 
   /**
