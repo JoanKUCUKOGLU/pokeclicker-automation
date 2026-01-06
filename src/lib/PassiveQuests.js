@@ -85,30 +85,44 @@ class AutomationPassiveQuests {
   static __internal__loopBody() {
     const quests = App.game.quests;
 
-    // 1) Claim completed quests (same as focus)
+    // Sécurité
+    if (!quests.isDailyQuestsUnlocked()) return;
+
+    /* ================================
+     * 1) Claim completed quests
+     * (logique Focus)
+     * ================================ */
     quests.claimCompletedQuests();
 
-    // 2) Refresh quest list if needed
-    if (quests.canStartNewQuest()) {
+    /* ================================
+     * 2) Fill quest slots if possible
+     * (logique Focus)
+     * ================================ */
+    let safety = 5; // évite toute boucle infinie
+    while (quests.canStartNewQuest() && safety-- > 0) {
       quests.beginQuest();
     }
 
     const currentQuests = quests.currentQuests();
 
-    // 3) Filter only passive-compatible quests
+    /* ================================
+     * 3) Keep only passive quests
+     * ================================ */
     const passiveQuests = currentQuests.filter((quest) =>
       this.__internal__isPassiveQuest(quest)
     );
 
-    // 4) If no relevant quest is active, try to refresh
+    /* ================================
+     * 4) If no passive quest is active
+     * -> we wait, DO NOT force skip
+     * ================================ */
     if (passiveQuests.length === 0) {
-      if (quests.canStartNewQuest()) {
-        quests.beginQuest();
-      }
       return;
     }
 
-    // 5) Ensure required automations are enabled
+    /* ================================
+     * 5) Ensure background automations
+     * ================================ */
     this.__internal__ensureAutomationForQuests(passiveQuests);
   }
 
