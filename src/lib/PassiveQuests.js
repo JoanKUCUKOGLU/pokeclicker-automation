@@ -132,9 +132,7 @@ class AutomationPassiveQuests {
       return (
         !quest.isCompleted() &&
         !quest.inProgress() &&
-        Automation.Utils.LocalStorage.getValue(
-          this.__internal__advancedSettings.QuestEnabled(quest.constructor.name)
-        ) == "true"
+        this.__internal__isPassiveQuest(quest.constructor.name) == true
       );
     }, this);
 
@@ -153,9 +151,9 @@ class AutomationPassiveQuests {
    */
   static __internal__isPassiveQuest(quest) {
     return (
-      Automation.Utils.isInstanceOf(quest, "HatchEggsQuest") ||
-      Automation.Utils.isInstanceOf(quest, "MineItemsQuest") ||
-      Automation.Utils.isInstanceOf(quest, "MineLayersQuest")
+      quest == "HatchEggsQuest" ||
+      quest == "MineItemsQuest" ||
+      quest == "MineLayersQuest"
     );
   }
 
