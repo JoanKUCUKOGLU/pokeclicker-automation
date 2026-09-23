@@ -173,8 +173,8 @@ class AutomationShop {
           clearInterval(watcher);
         }
       }.bind(this),
-      10000,
-    ); // Check every 10 seconds
+      5000,
+    ); // Check every 5 seconds
   }
 
   /**

@@ -8,6 +8,8 @@ class AutomationUnderground {
   static Settings = {
     FeatureEnabled: "Mining-Enabled",
     SafeBombs: "Mining-SafeBombs",
+    AutoSellDiamondTreasures: "Mining-AutoSellDiamondTreasures",
+    AutoSellGemPlates: "Mining-AutoSellGemPlates",
   };
 
   /**
@@ -16,18 +18,26 @@ class AutomationUnderground {
    * @param initStep: The current automation init step
    */
   static initialize(initStep) {
-    // Only consider the BuildMenu init step
     if (initStep == Automation.InitSteps.BuildMenu) {
-      // Enable safe bombs usage by default
       Automation.Utils.LocalStorage.setDefaultValue(
         this.Settings.SafeBombs,
         true,
       );
 
+      Automation.Utils.LocalStorage.setDefaultValue(
+        this.Settings.AutoSellDiamondTreasures,
+        false,
+      );
+
+      Automation.Utils.LocalStorage.setDefaultValue(
+        this.Settings.AutoSellGemPlates,
+        false,
+      );
+
       this.__internal__buildMenu();
     } else {
-      // Restore previous session state
       this.toggleAutoMining();
+      this.__internal__startAutoSellWatcher();
     }
   }
 
@@ -86,6 +96,9 @@ class AutomationUnderground {
 
   static __internal__autoMiningLoop = null;
   static __internal__innerMiningLoop = null;
+
+  static __internal__autoSellLoop = null;
+  static __internal__lastLayersMined = null;
 
   static __internal__actionCount = 0;
   static __internal__canUseHammer = false;
@@ -154,6 +167,24 @@ class AutomationUnderground {
       safeBombsTooltip,
       miningSettingPanel,
     );
+
+    const AutoSellDiamondTreasuresTooltip =
+      "Automatically sells Underground treasures worth Diamonds after completing a layer";
+    Automation.Menu.addLabeledAdvancedSettingsToggleButton(
+      "Automatically sell Diamond treasures",
+      this.Settings.AutoSellDiamondTreasures,
+      AutoSellDiamondTreasuresTooltip,
+      miningSettingPanel,
+    );
+
+    const AutoSellGemPlatesTooltip =
+      "Automatically sells Underground Plates for Gems after completing a layer";
+    Automation.Menu.addLabeledAdvancedSettingsToggleButton(
+      "Automatically sell Gem Plates",
+      this.Settings.AutoSellGemPlates,
+      AutoSellGemPlatesTooltip,
+      miningSettingPanel,
+    );
   }
 
   /**
@@ -167,6 +198,7 @@ class AutomationUnderground {
           clearInterval(watcher);
           this.__internal__undergroundContainer.hidden = false;
           this.toggleAutoMining();
+          this.__internal__startAutoSellWatcher();
         }
       }.bind(this),
       10000,
@@ -778,5 +810,81 @@ class AutomationUnderground {
         App.game.underground.mine?.itemsFound ==
         0
     );
+  }
+
+  static __internal__startAutoSellWatcher() {
+    if (!App.game.underground.canAccess()) {
+      return;
+    }
+
+    if (this.__internal__autoSellLoop !== null) {
+      return;
+    }
+
+    this.__internal__lastLayersMined =
+      App.game.statistics.undergroundLayersMined();
+
+    this.__internal__autoSellLoop = setInterval(
+      this.__internal__autoSellTick.bind(this),
+      1000,
+    );
+  }
+
+  static __internal__autoSellTick() {
+    const layersMined = App.game.statistics.undergroundLayersMined();
+
+    // No new layer completed
+    if (layersMined === this.__internal__lastLayersMined) {
+      return;
+    }
+
+    this.__internal__lastLayersMined = layersMined;
+
+    const sellDiamondTreasures =
+      Automation.Utils.LocalStorage.getValue(
+        this.Settings.AutoSellDiamondTreasures,
+      ) === "true";
+
+    const sellGemPlates =
+      Automation.Utils.LocalStorage.getValue(
+        this.Settings.AutoSellGemPlates,
+      ) === "true";
+
+    if (sellDiamondTreasures) {
+      this.__internal__sellUndergroundItemsByType(0, "Diamond treasures");
+    }
+
+    if (sellGemPlates) {
+      this.__internal__sellUndergroundItemsByType(1, "Gem Plates");
+    }
+  }
+
+  static __internal__sellUndergroundItemsByType(valueType, label) {
+    let soldCount = 0;
+
+    const items = UndergroundItems.list.filter(
+      (item) =>
+        item.valueType === valueType && player.amountOfItem(item.itemName) > 0,
+    );
+
+    for (const item of items) {
+      const amountBefore = player.amountOfItem(item.itemName);
+
+      // sellMineItem() sells one item at a time
+      for (let i = 0; i < amountBefore; i++) {
+        UndergroundController.sellMineItem(item);
+      }
+
+      const amountAfter = player.amountOfItem(item.itemName);
+
+      soldCount += amountBefore - amountAfter;
+    }
+
+    if (soldCount > 0) {
+      Automation.Notifications.sendNotif(
+        `Automatically sold ${soldCount} ${label}!`,
+        "Mining",
+      );
+    }
   }
 }
