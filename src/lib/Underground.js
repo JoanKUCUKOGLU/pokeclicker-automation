@@ -98,7 +98,6 @@ class AutomationUnderground {
   static __internal__innerMiningLoop = null;
 
   static __internal__autoSellLoop = null;
-  static __internal__lastLayersMined = null;
 
   static __internal__actionCount = 0;
   static __internal__canUseHammer = false;
@@ -169,7 +168,7 @@ class AutomationUnderground {
     );
 
     const AutoSellDiamondTreasuresTooltip =
-      "Automatically sells Underground treasures worth Diamonds after completing a layer";
+      "Automatically sells Underground treasures worth Diamonds";
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
       "Automatically sell Diamond treasures",
       this.Settings.AutoSellDiamondTreasures,
@@ -178,7 +177,7 @@ class AutomationUnderground {
     );
 
     const AutoSellGemPlatesTooltip =
-      "Automatically sells Underground Plates for Gems after completing a layer";
+      "Automatically sells Underground Plates for Gems";
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
       "Automatically sell Gem Plates",
       this.Settings.AutoSellGemPlates,
@@ -812,6 +811,9 @@ class AutomationUnderground {
     );
   }
 
+  /**
+   * @brief Starts the automatic Underground item selling loop
+   */
   static __internal__startAutoSellWatcher() {
     if (!App.game.underground.canAccess()) {
       return;
@@ -821,70 +823,92 @@ class AutomationUnderground {
       return;
     }
 
-    this.__internal__lastLayersMined =
-      App.game.statistics.undergroundLayersMined();
-
+    // Run once immediately, then check every second
+    this.__internal__autoSellTick();
     this.__internal__autoSellLoop = setInterval(
       this.__internal__autoSellTick.bind(this),
       1000,
     );
   }
 
+  /**
+   * @brief Checks the Auto Sell settings and sells the requested item categories
+   */
   static __internal__autoSellTick() {
-    const layersMined = App.game.statistics.undergroundLayersMined();
+    try {
+      const sellDiamondTreasures =
+        Automation.Utils.LocalStorage.getValue(
+          this.Settings.AutoSellDiamondTreasures,
+        ) === "true";
 
-    // No new layer completed
-    if (layersMined === this.__internal__lastLayersMined) {
-      return;
-    }
+      const sellGemPlates =
+        Automation.Utils.LocalStorage.getValue(
+          this.Settings.AutoSellGemPlates,
+        ) === "true";
 
-    this.__internal__lastLayersMined = layersMined;
+      if (sellDiamondTreasures) {
+        this.__internal__sellUndergroundItemsByType(
+          UndergroundItemValueType.Diamond,
+          "Diamond treasures",
+        );
+      }
 
-    const sellDiamondTreasures =
-      Automation.Utils.LocalStorage.getValue(
-        this.Settings.AutoSellDiamondTreasures,
-      ) === "true";
-
-    const sellGemPlates =
-      Automation.Utils.LocalStorage.getValue(
-        this.Settings.AutoSellGemPlates,
-      ) === "true";
-
-    if (sellDiamondTreasures) {
-      this.__internal__sellUndergroundItemsByType(
-        UndergroundItemValueType.Diamond,
-        "Diamond treasures",
-      );
-    }
-
-    if (sellGemPlates) {
-      this.__internal__sellUndergroundItemsByType(
-        UndergroundItemValueType.Gem,
-        "Gem Plates",
+      if (sellGemPlates) {
+        this.__internal__sellUndergroundItemsByType(
+          UndergroundItemValueType.Gem,
+          "Gem Plates",
+        );
+      }
+    } catch (error) {
+      console.error(
+        "[Pokeclicker Automation] Auto Sell Underground error:",
+        error,
       );
     }
   }
 
+  /**
+   * @brief Sells every Underground item matching the requested value type
+   *
+   * @param valueType The UndergroundItemValueType to sell
+   * @param label Label used in the notification
+   */
   static __internal__sellUndergroundItemsByType(valueType, label) {
     let soldCount = 0;
 
     const items = UndergroundItems.list.filter(
-      (item) =>
-        item.valueType === valueType && player.amountOfItem(item.itemName) > 0,
+      (item) => item.valueType === valueType,
     );
 
     for (const item of items) {
-      const amount = player.amountOfItem(item.itemName);
+      try {
+        // Ignore items that are not present in the player's item list
+        if (!player.itemList[item.itemName]) {
+          continue;
+        }
 
-      if (amount <= 0) {
-        continue;
+        const amountBefore = player.itemList[item.itemName]();
+
+        if (amountBefore <= 0) {
+          continue;
+        }
+
+        // Respect Pokéclicker's "lock item from selling" option
+        if (typeof item.sellLocked === "function" && item.sellLocked()) {
+          continue;
+        }
+
+        // Sell the whole stack at once
+        UndergroundController.sellMineItem(item, amountBefore);
+
+        const amountAfter = player.itemList[item.itemName]();
+        soldCount += amountBefore - amountAfter;
+      } catch (error) {
+        console.error(
+          `[Pokeclicker Automation] Failed to sell ${item.itemName}:`,
+          error,
+        );
       }
-
-      UndergroundController.sellMineItem(item, amount);
-
-      const amountAfter = player.amountOfItem(item.itemName);
-
-      soldCount += amount - amountAfter;
     }
 
     if (soldCount > 0) {
