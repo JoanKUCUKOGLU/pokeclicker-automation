@@ -851,11 +851,17 @@ class AutomationUnderground {
       ) === "true";
 
     if (sellDiamondTreasures) {
-      this.__internal__sellUndergroundItemsByType(0, "Diamond treasures");
+      this.__internal__sellUndergroundItemsByType(
+        UndergroundItemValueType.Diamond,
+        "Diamond treasures",
+      );
     }
 
     if (sellGemPlates) {
-      this.__internal__sellUndergroundItemsByType(1, "Gem Plates");
+      this.__internal__sellUndergroundItemsByType(
+        UndergroundItemValueType.Gem,
+        "Gem Plates",
+      );
     }
   }
 
@@ -868,16 +874,17 @@ class AutomationUnderground {
     );
 
     for (const item of items) {
-      const amountBefore = player.amountOfItem(item.itemName);
+      const amount = player.amountOfItem(item.itemName);
 
-      // sellMineItem() sells one item at a time
-      for (let i = 0; i < amountBefore; i++) {
-        UndergroundController.sellMineItem(item);
+      if (amount <= 0) {
+        continue;
       }
+
+      UndergroundController.sellMineItem(item, amount);
 
       const amountAfter = player.amountOfItem(item.itemName);
 
-      soldCount += amountBefore - amountAfter;
+      soldCount += amount - amountAfter;
     }
 
     if (soldCount > 0) {
