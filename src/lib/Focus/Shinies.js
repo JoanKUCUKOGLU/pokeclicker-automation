@@ -4,18 +4,18 @@
  * Route shiny hunting Focus.
  *
  * New shinies only mode:
- * - scans every accessible route in the current region in route-number order;
- * - targets the first route that still contains at least one missing shiny;
+ * - uses PokéClicker's native Routes.getRoutesByRegion(region) order;
+ * - this is the same base route order used by route achievements;
+ * - targets the first accessible route that still contains a missing shiny;
  * - bounces between that target route and the next accessible route;
- * - once every shiny from the target route is owned, automatically advances to
- *   the next incomplete route;
+ * - once every shiny from the target route is owned, automatically advances
+ *   to the next incomplete route;
  * - optionally catches shiny Roamers encountered during the search;
  * - if normal route shinies are complete and shiny Roamers are still missing,
- *   it switches to a Roamer cleanup phase and uses the boosted x3 route for the
- *   first roaming group that still has a missing shiny Roamer.
+ *   it switches to a Roamer cleanup phase.
  *
  * Any shiny mode:
- * - bounces between the current accessible route and the next accessible route;
+ * - bounces between an accessible route and the next accessible route;
  * - catches every shiny encountered;
  * - optionally includes shiny Roamers.
  */
@@ -27,12 +27,13 @@ class AutomationFocusShinies {
   static __registerFunctionalities(functionalitiesList) {
     functionalitiesList.push({
       id: "Shinies",
+
       name: "Shinies",
 
       tooltip:
         "Hunts shiny Pokémon on routes by rapidly alternating between two routes" +
         Automation.Menu.TooltipSeparator +
-        "New shinies only: completes accessible routes one by one, in route order.\n" +
+        "New shinies only: completes routes one by one using PokéClicker's route order.\n" +
         "Any shiny: catches every shiny encountered.\n" +
         "Optional shiny Roamers can also be caught.",
 
@@ -84,7 +85,7 @@ class AutomationFocusShinies {
     label.setAttribute(
       "automation-tooltip-text",
 
-      "New shinies only: completes accessible routes one by one in route order." +
+      "New shinies only: completes accessible routes one by one using PokéClicker's native route order." +
         Automation.Menu.TooltipSeparator +
         "Any shiny: catches every shiny encounter and keeps hunting indefinitely.",
     );
@@ -432,7 +433,7 @@ class AutomationFocusShinies {
        * Capturing the shiny may have completed
        * the current route.
        *
-       * Immediately rebuild the sequential plan.
+       * Immediately rebuild the route plan.
        */
       if (!this.__internal__refreshRoutePlan(true)) {
         return;
@@ -688,18 +689,24 @@ class AutomationFocusShinies {
 
   static __internal__getAccessibleRoutes(region) {
     /*
-     * Accessible routes sorted by route number.
+     * IMPORTANT:
+     *
+     * Do NOT sort these routes ourselves.
+     *
+     * Routes.getRoutesByRegion(region) already returns PokéClicker's
+     * native route order.
+     *
+     * Route achievements are also registered by iterating directly over
+     * Routes.getRoutesByRegion(region), so using this array as-is gives
+     * Shiny Focus the same base route ordering.
      */
-    return Routes.getRoutesByRegion(region)
-      .filter(
-        (route) =>
-          !Automation.Utils.Route.isInMagikarpJumpIsland(
-            route.region,
-            route.subRegion,
-          ) &&
-          Automation.Utils.Route.canMoveToRoute(route.number, region, route),
-      )
-      .sort((a, b) => a.number - b.number);
+    return Routes.getRoutesByRegion(region).filter(
+      (route) =>
+        !Automation.Utils.Route.isInMagikarpJumpIsland(
+          route.region,
+          route.subRegion,
+        ) && Automation.Utils.Route.canMoveToRoute(route.number, region, route),
+    );
   }
 
   /************************\
@@ -755,6 +762,10 @@ class AutomationFocusShinies {
     \************************/
 
   static __internal__getFirstIncompleteRoute(routes) {
+    /*
+     * routes is already in PokéClicker's
+     * native / Achievement route order.
+     */
     return (
       routes.find((route) => this.__internal__routeHasMissingShiny(route)) ??
       null
@@ -773,10 +784,10 @@ class AutomationFocusShinies {
     const groups = new Map();
 
     /*
-     * Routes are already sorted.
+     * Keep the same route order passed to us.
      *
-     * This means roaming groups will also
-     * naturally be processed in map order.
+     * This means roaming groups are also discovered
+     * according to PokéClicker's native route order.
      */
     for (const route of routes) {
       const group = RoamingPokemonList.findGroup(region, route.subRegion || 0);
@@ -815,6 +826,9 @@ class AutomationFocusShinies {
       group,
     );
 
+    /*
+     * filter() preserves accessibleRoutes order.
+     */
     return accessibleRoutes.filter((route) =>
       groupSubRegions.includes(route.subRegion || 0),
     );
@@ -841,11 +855,10 @@ class AutomationFocusShinies {
     }
 
     /*
-     * Literally use the next accessible
-     * route in sequence.
+     * Use the NEXT route in PokéClicker's
+     * native route list.
      *
-     * If we're on the last route,
-     * wrap around to the first route.
+     * Last route wraps back to first.
      */
     return routes[(index + 1) % routes.length];
   }
@@ -861,7 +874,7 @@ class AutomationFocusShinies {
 
     /*
      * All unlocked / accessible routes
-     * in numerical order.
+     * using PokéClicker's native ordering.
      */
     const accessibleRoutes = this.__internal__getAccessibleRoutes(region);
 
@@ -898,7 +911,8 @@ class AutomationFocusShinies {
         accessibleRoutes[0];
 
       /*
-       * Bounce to the next route.
+       * Bounce to the next route
+       * in the native route list.
        */
       newSecondary = this.__internal__getNextRoute(
         accessibleRoutes,
@@ -908,7 +922,7 @@ class AutomationFocusShinies {
       /***********************************************************************
        * NEW SHINIES ONLY
        *
-       * COMPLETE ROUTES IN ORDER.
+       * COMPLETE ROUTES IN POKÉCLICKER / ACHIEVEMENT ORDER.
        ***********************************************************************/
 
       const firstIncompleteRoute =
@@ -924,15 +938,16 @@ class AutomationFocusShinies {
         /*
          * TARGET:
          *
-         * The first route in numerical order
-         * that still contains a missing shiny.
+         * First accessible route in PokéClicker's
+         * native list that still contains
+         * at least one missing shiny.
          */
         newPrimary = firstIncompleteRoute;
 
         /*
          * BOUNCE:
          *
-         * The next accessible route.
+         * Next accessible route in that same list.
          */
         newSecondary = this.__internal__getNextRoute(
           accessibleRoutes,
@@ -969,7 +984,8 @@ class AutomationFocusShinies {
         newPhase = "roamers";
 
         /*
-         * First roaming group that still
+         * First roaming group encountered in
+         * PokéClicker's route ordering that still
          * contains a missing shiny Roamer.
          */
         const groupData = missingRoamerGroups[0];
