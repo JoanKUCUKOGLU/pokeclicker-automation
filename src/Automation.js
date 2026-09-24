@@ -12,11 +12,11 @@ class Automation {
   static Click = AutomationClick;
   static Farm = AutomationFarm;
   static Focus = AutomationFocus;
+  static FreeQuests = AutomationFreeQuests;
   static Hatchery = AutomationHatchery;
   static Items = AutomationItems;
   static Menu = AutomationMenu;
   static Notifications = AutomationNotifications;
-  static PassiveQuests = AutomationPassiveQuests;
   static Shop = AutomationShop;
   static Trivia = AutomationTrivia;
   static Underground = AutomationUnderground;
@@ -65,7 +65,7 @@ class Automation {
             // 'Automation' panel
             this.Click.initialize(initStep);
             this.Focus.initialize(initStep);
-            this.PassiveQuests.initialize(initStep);
+            this.FreeQuests.initialize(initStep);
             this.Hatchery.initialize(initStep);
             this.Underground.initialize(initStep);
             this.Farm.initialize(initStep);
