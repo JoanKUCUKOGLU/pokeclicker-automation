@@ -3,16 +3,19 @@
  *
  * New shinies only:
  * - Keeps PokéClicker's native route order.
- * - Route A = first accessible route with at least one missing shiny.
- * - Route B = next accessible route that ALSO has at least one missing shiny.
- * - Rapidly bounces A <-> B and catches missing shinies on both routes.
- * - If only one incomplete route remains, Route B becomes the last completed
- *   route so the fast route-switch reroll can continue.
+ * - With bounce ON:
+ *   - A = first accessible route with at least one missing shiny.
+ *   - B = next accessible route that ALSO has at least one missing shiny.
+ *   - If only one incomplete route remains, a completed route is used as B.
+ *   - Rapidly bounces A <-> B.
+ * - With bounce OFF:
+ *   - Hunts normally on route A until that route is complete.
+ *   - Then moves to the next incomplete route.
  * - Optional shiny Roamers are caught when encountered.
  *
  * Any shiny:
- * - Bounces between two accessible routes.
- * - Catches every shiny encountered.
+ * - With bounce ON: bounces between two accessible routes.
+ * - With bounce OFF: stays on the current accessible route and hunts normally.
  */
 class AutomationFocusShinies {
   static __registerFunctionalities(functionalitiesList) {
@@ -20,11 +23,10 @@ class AutomationFocusShinies {
       id: "Shinies",
       name: "Shinies",
       tooltip:
-        "Hunts shiny Pokémon on routes by rapidly alternating between routes" +
+        "Hunts shiny Pokémon on routes" +
         Automation.Menu.TooltipSeparator +
-        "New shinies only: routes A and B both contain missing shinies whenever possible.\n" +
-        "If only one incomplete route remains, a completed route is used as the bounce route.\n" +
-        "Any shiny: catches every shiny encountered.\n" +
+        "Bounce ON: rapidly alternates between two routes.\n" +
+        "Bounce OFF: hunts normally, route by route.\n" +
         "Optional shiny Roamers can also be caught.",
       run: function () {
         this.__internal__start();
@@ -43,27 +45,27 @@ class AutomationFocusShinies {
     );
 
     Automation.Utils.LocalStorage.setDefaultValue(
+      this.__internal__advancedSettings.EnableBounce,
+      true,
+    );
+
+    Automation.Utils.LocalStorage.setDefaultValue(
       this.__internal__advancedSettings.IncludeShinyRoamers,
       false,
     );
 
     const container = document.createElement("div");
-
     container.style.paddingLeft = "10px";
     container.style.paddingRight = "10px";
     container.style.textAlign = "left";
 
     const label = document.createElement("span");
-
     label.innerText = "Shiny hunting mode :";
-
     label.classList.add("hasAutomationTooltip");
-
     label.setAttribute(
       "automation-tooltip-text",
-      "New shinies only: hunts two incomplete routes at the same time whenever possible." +
+      "New shinies only: completes routes in PokéClicker's native route order." +
         Automation.Menu.TooltipSeparator +
-        "If only one incomplete route remains, the script keeps switching with a completed route for fast rerolls.\n" +
         "Any shiny: catches every shiny encounter and keeps hunting indefinitely.",
     );
 
@@ -79,7 +81,7 @@ class AutomationFocusShinies {
 
     newOnlyOption.value = this.__internal__huntModes.NewOnly;
 
-    newOnlyOption.textContent = "New shinies only - 2 routes";
+    newOnlyOption.textContent = "New shinies only - route by route";
 
     select.options.add(newOnlyOption);
 
@@ -109,10 +111,20 @@ class AutomationFocusShinies {
     }.bind(this);
 
     container.appendChild(select);
-
+    container.appendChild(document.createElement("br"));
     container.appendChild(document.createElement("br"));
 
-    container.appendChild(document.createElement("br"));
+    Automation.Menu.addLabeledAdvancedSettingsToggleButton(
+      "Enable route bounce",
+
+      this.__internal__advancedSettings.EnableBounce,
+
+      "ON: rapidly switches between two routes to reroll encounters." +
+        Automation.Menu.TooltipSeparator +
+        "OFF: classic shiny hunting. Stay on one target route and fight normally until it is complete, then move to the next route.",
+
+      container,
+    );
 
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
       "Include shiny roamers",
@@ -121,8 +133,7 @@ class AutomationFocusShinies {
 
       "Also catches shiny Roamers encountered while hunting routes" +
         Automation.Menu.TooltipSeparator +
-        "Normal route completion remains the priority.\n" +
-        "After all normal route shinies are complete, remaining shiny Roamers are hunted on their boosted route.",
+        "After normal route shinies are complete, remaining shiny Roamers are hunted on their boosted route.",
 
       container,
     );
@@ -133,11 +144,14 @@ class AutomationFocusShinies {
   static __internal__advancedSettings = {
     HuntMode: "Focus-Shinies-HuntMode",
 
+    EnableBounce: "Focus-Shinies-EnableBounce",
+
     IncludeShinyRoamers: "Focus-Shinies-IncludeShinyRoamers",
   };
 
   static __internal__huntModes = {
     NewOnly: "new",
+
     Any: "any",
   };
 
@@ -161,10 +175,6 @@ class AutomationFocusShinies {
 
   static __internal__captureFilterEnabled = false;
 
-  /*
-   * Most recently completed normal route
-   * during this Focus session.
-   */
   static __internal__lastCompletedRoute = null;
 
   /*************************\
@@ -308,13 +318,6 @@ class AutomationFocusShinies {
 
       Automation.Click.toggleAutoClick(true);
 
-      /*
-       * If the shiny we just caught completed
-       * the route where it was found, remember it.
-       *
-       * This route becomes the preferred bounce
-       * route if only one incomplete route remains.
-       */
       if (
         previousLockedRoute &&
         this.__internal__getHuntMode() === this.__internal__huntModes.NewOnly
@@ -343,32 +346,21 @@ class AutomationFocusShinies {
     }
 
     /*************************************************************************
-     * NO SECOND ROUTE AVAILABLE
+     * BOUNCE DISABLED
      *************************************************************************/
 
-    /*
-     * This should now only happen if there
-     * literally isn't any other accessible route.
-     */
+    if (!this.__internal__isBounceEnabled()) {
+      this.__internal__huntNormallyOnPrimaryRoute();
+
+      return;
+    }
+
+    /*************************************************************************
+     * NO SECONDARY ROUTE
+     *************************************************************************/
+
     if (this.__internal__secondaryRoute === null) {
-      const targetRoute = this.__internal__primaryRoute;
-
-      if (
-        player.region !== this.__internal__region ||
-        player.route !== targetRoute.number
-      ) {
-        Automation.Utils.Route.moveToRoute(
-          targetRoute.number,
-
-          this.__internal__region,
-        );
-      }
-
-      const currentEnemy = Battle.enemyPokemon();
-
-      if (currentEnemy && this.__internal__isWantedShiny(currentEnemy)) {
-        this.__internal__lockTarget(currentEnemy);
-      }
+      this.__internal__huntNormallyOnPrimaryRoute();
 
       return;
     }
@@ -380,6 +372,41 @@ class AutomationFocusShinies {
     this.__internal__disableCaptureFilter();
 
     this.__internal__performBounceBurst();
+  }
+
+  /************************\
+    |*   CLASSIC HUNT     *|
+    \************************/
+
+  static __internal__huntNormallyOnPrimaryRoute() {
+    const targetRoute = this.__internal__primaryRoute;
+
+    if (!targetRoute) {
+      return;
+    }
+
+    /*
+     * Search normally:
+     * don't catch non-shiny Pokémon.
+     */
+    this.__internal__disableCaptureFilter();
+
+    if (
+      player.region !== this.__internal__region ||
+      player.route !== targetRoute.number
+    ) {
+      Automation.Utils.Route.moveToRoute(
+        targetRoute.number,
+
+        this.__internal__region,
+      );
+    }
+
+    const enemy = Battle.enemyPokemon();
+
+    if (enemy && this.__internal__isWantedShiny(enemy)) {
+      this.__internal__lockTarget(enemy);
+    }
   }
 
   /******************************\
@@ -397,19 +424,11 @@ class AutomationFocusShinies {
 
     let enemy = Battle.enemyPokemon();
 
-    /*************************************************************************
-     * CURRENT ENCOUNTER
-     *************************************************************************/
-
     if (enemy && this.__internal__isWantedShiny(enemy)) {
       this.__internal__lockTarget(enemy);
 
       return;
     }
-
-    /*************************************************************************
-     * PARK ON B
-     *************************************************************************/
 
     if (
       player.region !== this.__internal__region ||
@@ -429,10 +448,6 @@ class AutomationFocusShinies {
         return;
       }
     }
-
-    /*************************************************************************
-     * A <-> B
-     *************************************************************************/
 
     for (let i = 0; i < this.__internal__burstSize; i++) {
       if (Battle.catching() || this.__internal__lockedEnemy !== null) {
@@ -492,9 +507,7 @@ class AutomationFocusShinies {
       return false;
     }
 
-    const mode = this.__internal__getHuntMode();
-
-    if (mode === this.__internal__huntModes.Any) {
+    if (this.__internal__getHuntMode() === this.__internal__huntModes.Any) {
       return true;
     }
 
@@ -520,12 +533,6 @@ class AutomationFocusShinies {
 
     this.__internal__lockedEnemy = enemy;
 
-    /*
-     * Remember where the shiny was found.
-     *
-     * If that capture completes the route,
-     * we can use it later as the fallback B.
-     */
     this.__internal__lockedRoute = {
       region: player.region,
 
@@ -554,7 +561,7 @@ class AutomationFocusShinies {
   }
 
   /************************\
-    |*      POKEBALL      *|
+    |*      SETTINGS      *|
     \************************/
 
   static __internal__getSelectedPokeball() {
@@ -564,10 +571,6 @@ class AutomationFocusShinies {
       ),
     );
   }
-
-  /************************\
-    |*     HUNT MODE      *|
-    \************************/
 
   static __internal__getHuntMode() {
     const mode = Automation.Utils.LocalStorage.getValue(
@@ -579,9 +582,13 @@ class AutomationFocusShinies {
       : this.__internal__huntModes.NewOnly;
   }
 
-  /************************\
-    |*   SHINY ROAMERS    *|
-    \************************/
+  static __internal__isBounceEnabled() {
+    return (
+      Automation.Utils.LocalStorage.getValue(
+        this.__internal__advancedSettings.EnableBounce,
+      ) === "true"
+    );
+  }
 
   static __internal__includeShinyRoamers() {
     return (
@@ -729,17 +736,6 @@ class AutomationFocusShinies {
     |* COMPLETED BOUNCE B *|
     \************************/
 
-  /**
-   * If A is the only incomplete route remaining,
-   * continue the fast A <-> B route switching
-   * using a completed route as B.
-   *
-   * Priority:
-   *
-   * 1. Most recently completed route.
-   * 2. Previous completed route in native order.
-   * 3. Any completed accessible route.
-   */
   static __internal__getCompletedBounceRoute(
     routes,
 
@@ -756,7 +752,7 @@ class AutomationFocusShinies {
       !this.__internal__routeHasMissingShiny(route);
 
     /*************************************************************************
-     * LAST COMPLETED ROUTE
+     * LAST COMPLETED
      *************************************************************************/
 
     if (this.__internal__lastCompletedRoute) {
@@ -772,7 +768,7 @@ class AutomationFocusShinies {
     }
 
     /*************************************************************************
-     * PREVIOUS COMPLETED ROUTE IN NATIVE ORDER
+     * PREVIOUS ROUTE
      *************************************************************************/
 
     const targetIndex = routes.findIndex(
@@ -790,10 +786,6 @@ class AutomationFocusShinies {
         }
       }
     }
-
-    /*************************************************************************
-     * ANY COMPLETED ROUTE
-     *************************************************************************/
 
     return routes.find(isValidCompletedRoute) ?? null;
   }
@@ -915,6 +907,8 @@ class AutomationFocusShinies {
 
     const mode = this.__internal__getHuntMode();
 
+    const bounceEnabled = this.__internal__isBounceEnabled();
+
     const accessibleRoutes = this.__internal__getAccessibleRoutes(region);
 
     if (accessibleRoutes.length === 0) {
@@ -946,11 +940,13 @@ class AutomationFocusShinies {
         accessibleRoutes.find((route) => route.number === player.route) ??
         accessibleRoutes[0];
 
-      newSecondary = this.__internal__getNextRoute(
-        accessibleRoutes,
+      newSecondary = bounceEnabled
+        ? this.__internal__getNextRoute(
+            accessibleRoutes,
 
-        newPrimary,
-      );
+            newPrimary,
+          )
+        : null;
     } else {
 
     /*************************************************************************
@@ -966,39 +962,41 @@ class AutomationFocusShinies {
       if (firstIncompleteRoute !== null) {
         newPhase = "routes";
 
-        /*
-         * A = first incomplete route.
-         */
         newPrimary = firstIncompleteRoute;
 
-        /*
-         * Prefer another incomplete route as B.
-         *
-         * This means A and B progress together.
-         */
-        newSecondary = this.__internal__getNextIncompleteRoute(
-          accessibleRoutes,
+        /*********************************************************************
+         * CLASSIC HUNT
+         *********************************************************************/
 
-          newPrimary,
-        );
+        if (!bounceEnabled) {
+          newSecondary = null;
+        } else {
 
-        /*
-         * Only ONE incomplete route remains.
-         *
-         * Instead of stopping the rapid switch,
-         * use the last completed route as B.
-         */
-        if (newSecondary === null) {
-          newSecondary = this.__internal__getCompletedBounceRoute(
+        /*********************************************************************
+         * BOUNCE
+         *********************************************************************/
+          newSecondary = this.__internal__getNextIncompleteRoute(
             accessibleRoutes,
 
             newPrimary,
           );
+
+          /*
+           * One incomplete route remains:
+           * keep bouncing with a completed route.
+           */
+          if (newSecondary === null) {
+            newSecondary = this.__internal__getCompletedBounceRoute(
+              accessibleRoutes,
+
+              newPrimary,
+            );
+          }
         }
       } else {
 
       /***********************************************************************
-       * ALL NORMAL ROUTES COMPLETE
+       * NORMAL ROUTES COMPLETE
        ***********************************************************************/
         const missingRoamerGroups =
           this.__internal__getMissingShinyRoamerGroups(
@@ -1012,10 +1010,6 @@ class AutomationFocusShinies {
 
           return false;
         }
-
-        /*********************************************************************
-         * ROAMER CLEANUP
-         *********************************************************************/
 
         newPhase = "roamers";
 
@@ -1052,17 +1046,22 @@ class AutomationFocusShinies {
           return false;
         }
 
-        newSecondary = this.__internal__getNextRoute(
-          groupRoutes,
+        /*
+         * Bounce OFF:
+         * normal hunting on boosted route.
+         *
+         * Bounce ON:
+         * boosted route <-> another route.
+         */
+        newSecondary = bounceEnabled
+          ? this.__internal__getNextRoute(
+              groupRoutes,
 
-          newPrimary,
-        );
+              newPrimary,
+            )
+          : null;
       }
     }
-
-    /*************************************************************************
-     * PLAN CHANGED?
-     *************************************************************************/
 
     const routePlanChanged =
       force ||
@@ -1074,10 +1073,6 @@ class AutomationFocusShinies {
     if (!routePlanChanged) {
       return true;
     }
-
-    /*************************************************************************
-     * SAVE PLAN
-     *************************************************************************/
 
     this.__internal__region = region;
 

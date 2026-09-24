@@ -1,19 +1,32 @@
 /**
- * @class AutomationFocusPokerusCure
+ * @class The AutomationFocusPokerusCure regroups the 'Focus on' button's
+ *        'Pokérus cure' functionalities.
  *
- * Route logic:
- * - A = first accessible route with a currently available Contagious Pokémon.
- * - B = next accessible route in the same region with a currently available Contagious Pokémon.
- * - A <-> B is spammed to reroll encounters quickly.
- * - Contagious Pokémon found on either A or B are caught.
- * - If only one Contagious route remains, a completed accessible route is used as B,
- *   so the fast bounce remains active until the final route is finished.
- * - When no eligible route remains, the normal dungeon logic is used.
+ * Route behaviour:
+ * - Route A = first accessible route with at least one currently available
+ *   Contagious Pokémon.
+ * - Route B = next accessible route in the same region that ALSO contains at
+ *   least one currently available Contagious Pokémon.
+ * - Rapidly alternates A <-> B and catches Contagious Pokémon on both routes.
+ * - If B is completed, another eligible B is selected.
+ * - If A is completed, the next eligible route becomes A.
+ * - If only one route with Contagious Pokémon remains, a completed accessible
+ *   route in the same region is used as B so the fast bounce stays active.
+ * - When no route has a currently available Contagious Pokémon, the original
+ *   dungeon behaviour is used.
  */
 class AutomationFocusPokerusCure {
+  /******************************************************************************\
+    |***    Focus specific members, should only be used by focus sub-classes    ***|
+    \******************************************************************************/
+
   static __registerFunctionalities(functionalitiesList) {
     this.__internal__buildPokerusRouteList();
     this.__internal__buildPokerusDungeonList();
+
+    const isUnlockedCallback = function () {
+      return App.game.keyItems.hasKeyItem(KeyItemType.Pokerus_virus);
+    };
 
     functionalitiesList.push({
       id: "PokerusCure",
@@ -22,16 +35,28 @@ class AutomationFocusPokerusCure {
         "Hunts for pokémons that are infected by the pokérus" +
         Automation.Menu.TooltipSeparator +
         "Pokémons get resistant to the pokérus once they reach 50 EVs.\n" +
-        "On routes, switches rapidly between two routes and catches Contagious pokémons on both.\n" +
-        "If only one target route remains, a completed route is used to keep the bounce active.",
-      run: this.__internal__start.bind(this),
-      stop: this.__internal__stop.bind(this),
-      isUnlocked: () => App.game.keyItems.hasKeyItem(KeyItemType.Pokerus_virus),
+        "Bounce ON: rapidly switches between two routes.\n" +
+        "Whenever possible, both routes contain Contagious pokémons.\n" +
+        "If only one target route remains, a completed route is used to keep the bounce active.\n" +
+        "Bounce OFF: classic route-by-route hunting without route switching.\n" +
+        "Dungeons keep their normal Pokérus cure behaviour.",
+      run: function () {
+        this.__internal__start();
+      }.bind(this),
+      stop: function () {
+        this.__internal__stop();
+      }.bind(this),
+      isUnlocked: isUnlockedCallback,
       refreshRateAsMs: Automation.Focus.__noFunctionalityRefresh,
     });
   }
 
   static __buildAdvancedSettings(parent) {
+    Automation.Utils.LocalStorage.setDefaultValue(
+      this.__internal__advancedSettings.EnableBounce,
+      true,
+    );
+
     Automation.Utils.LocalStorage.setDefaultValue(
       this.__internal__advancedSettings.AllowBeastBallUsage,
       false,
@@ -47,64 +72,85 @@ class AutomationFocusPokerusCure {
       true,
     );
 
+    const bounceTooltip =
+      "ON: rapidly switches between two routes to reroll encounters." +
+      Automation.Menu.TooltipSeparator +
+      "OFF: classic Pokérus cure. Stay on one target route and fight normally until no currently available Contagious Pokémon remains, then move to the next route.";
+
+    Automation.Menu.addLabeledAdvancedSettingsToggleButton(
+      "Enable route bounce",
+      this.__internal__advancedSettings.EnableBounce,
+      bounceTooltip,
+      parent,
+    );
+
+    const beastBallTooltip =
+      "Allows the automation to use Beastball to catch UltraBeast pokémons." +
+      Automation.Menu.TooltipSeparator +
+      "If this option is disabled, or you don't have Beastballs,\n" +
+      "UltraBeast pokémons will be ignored.";
+
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
       "Use Beastballs to catch UltraBeast pokémons",
       this.__internal__advancedSettings.AllowBeastBallUsage,
-      "Allows the automation to use Beastball to catch UltraBeast pokémons." +
-        Automation.Menu.TooltipSeparator +
-        "If this option is disabled, or you don't have Beastballs,\nUltraBeast pokémons will be ignored.",
+      beastBallTooltip,
       parent,
     );
+
+    const alternateTooltip =
+      "If enabled, only pokémon's base form will be considered";
 
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
       "Skip Alternate form pokémons",
       this.__internal__advancedSettings.SkipAlternateForms,
-      "If enabled, only pokémon's base form will be considered",
+      alternateTooltip,
       parent,
     );
+
+    const mimicTooltip =
+      "If enabled, the dungeon automation will force chest pickup";
 
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
       "Include mimic pokémons from dungeon chests",
       this.__internal__advancedSettings.IncludeMimicPokemons,
-      "If enabled, the dungeon automation will force chest pickup",
+      mimicTooltip,
       parent,
     );
   }
 
+  /*********************************************************************\
+    |***    Internal members, should never be used by other classes    ***|
+    \*********************************************************************/
+
   static __internal__advancedSettings = {
+    EnableBounce: "Focus-PokerusCure-EnableBounce",
     AllowBeastBallUsage: "Focus-PokerusCure-AllowBeastBallUsage",
-
     IncludeMimicPokemons: "Focus-PokerusCure-IncludeMimicPokemons",
-
     SkipAlternateForms: "Focus-PokerusCure-SkipAlternateForms",
   };
 
   static __internal__pokerusCureLoop = null;
-
   static __internal__pokerusRouteData = [];
-
   static __internal__pokerusDungeonData = [];
 
   static __internal__currentRouteData = null;
-
   static __internal__currentDungeonData = null;
 
   static __internal__secondaryRoute = null;
-
   static __internal__lockedEnemy = null;
-
   static __internal__lockedRoute = null;
-
-  static __internal__lastCompletedRoute = null;
-
   static __internal__captureFilterEnabled = false;
 
-  static __internal__loopIntervalMs = 5;
+  /*
+   * Most recently completed route during this Focus session.
+   * It becomes the preferred bounce route when only one Contagious route remains.
+   */
+  static __internal__lastCompletedRoute = null;
 
+  static __internal__loopIntervalMs = 5;
   static __internal__burstSize = 10;
 
   static __internal__lastDungeonActionAt = 0;
-
   static __internal__dungeonActionIntervalMs = 500;
 
   /*************************\
@@ -116,10 +162,12 @@ class AutomationFocusPokerusCure {
       return;
     }
 
+    const disableReason = "The 'Focus on Pokérus cure' feature is enabled";
+
     Automation.Menu.setButtonDisabledState(
       Automation.Click.Settings.FeatureEnabled,
       true,
-      "The 'Focus on Pokérus cure' feature is enabled",
+      disableReason,
     );
 
     Automation.Click.toggleAutoClick(true);
@@ -127,20 +175,14 @@ class AutomationFocusPokerusCure {
     Automation.Utils.Pokeball.disableAutomationFilter();
 
     this.__internal__captureFilterEnabled = false;
-
     this.__internal__lockedEnemy = null;
-
     this.__internal__lockedRoute = null;
-
     this.__internal__secondaryRoute = null;
-
     this.__internal__lastCompletedRoute = null;
-
     this.__internal__lastDungeonActionAt = 0;
 
     this.__internal__pokerusCureLoop = setInterval(
       this.__internal__focusOnPokerusCure.bind(this),
-
       this.__internal__loopIntervalMs,
     );
 
@@ -153,17 +195,11 @@ class AutomationFocusPokerusCure {
 
   static __internal__stop() {
     this.__internal__currentRouteData = null;
-
     this.__internal__currentDungeonData = null;
-
     this.__internal__secondaryRoute = null;
-
     this.__internal__lockedEnemy = null;
-
     this.__internal__lockedRoute = null;
-
     this.__internal__lastCompletedRoute = null;
-
     this.__internal__lastDungeonActionAt = 0;
 
     if (this.__internal__pokerusCureLoop !== null) {
@@ -173,7 +209,6 @@ class AutomationFocusPokerusCure {
     this.__internal__pokerusCureLoop = null;
 
     Automation.Utils.Pokeball.disableAutomationFilter();
-
     this.__internal__captureFilterEnabled = false;
 
     Automation.Click.toggleAutoClick();
@@ -196,7 +231,6 @@ class AutomationFocusPokerusCure {
         this.__internal__currentDungeonData == null ||
         !this.__internal__doesDungeonHaveAnyPokemonNeedingCure(
           this.__internal__currentDungeonData.dungeon,
-
           true,
         )
       ) {
@@ -224,69 +258,59 @@ class AutomationFocusPokerusCure {
       const previousLockedRoute = this.__internal__lockedRoute;
 
       this.__internal__lockedEnemy = null;
-
       this.__internal__lockedRoute = null;
 
       this.__internal__disableCaptureFilter();
-
       Automation.Click.toggleAutoClick(true);
 
       /*
-       * Remember the most recently completed route.
-       *
-       * This works whether the Pokémon was caught
-       * on route A or route B.
+       * Remember the route if the capture just removed its last currently
+       * available Contagious target. This is useful as the final bounce route.
        */
       if (previousLockedRoute) {
-        const route = this.__internal__findRouteObject(
+        const completedRoute = this.__internal__findRouteObject(
           previousLockedRoute.region,
-
           previousLockedRoute.number,
         );
 
         if (
-          route &&
+          completedRoute &&
           !this.__internal__doesRouteHaveAnyPokemonNeedingCure(
-            route,
-
+            completedRoute,
             true,
           )
         ) {
-          this.__internal__lastCompletedRoute = route;
+          this.__internal__lastCompletedRoute = completedRoute;
         }
       }
 
       /*
-       * Route A may now be complete.
+       * Route A may now be finished.
        */
       if (
-        this.__internal__currentRouteData &&
+        this.__internal__currentRouteData != null &&
         !this.__internal__doesRouteHaveAnyPokemonNeedingCure(
           this.__internal__currentRouteData.route,
-
           true,
         )
       ) {
         this.__internal__currentRouteData = null;
-
         this.__internal__secondaryRoute = null;
       }
     }
 
     /*************************************************************************
-     * ROUTE A STILL HAS CONTAGIOUS TARGETS
+     * CURRENT ROUTE A STILL VALID
      *************************************************************************/
 
     if (
-      this.__internal__currentRouteData &&
+      this.__internal__currentRouteData != null &&
       this.__internal__doesRouteHaveAnyPokemonNeedingCure(
         this.__internal__currentRouteData.route,
-
         true,
       )
     ) {
       this.__internal__captureInfectedPokemons();
-
       return;
     }
 
@@ -296,48 +320,35 @@ class AutomationFocusPokerusCure {
 
     this.__internal__setNextPokerusRoute();
 
-    if (this.__internal__currentRouteData) {
+    if (this.__internal__currentRouteData != null) {
       this.__internal__captureInfectedPokemons();
-
       return;
     }
 
     /*************************************************************************
-     * NO ROUTE TARGET LEFT
+     * NO ELIGIBLE ROUTE -> DUNGEONS
      *************************************************************************/
 
     this.__internal__secondaryRoute = null;
-
     this.__internal__disableCaptureFilter();
 
-    /*************************************************************************
-     * DUNGEON
-     *************************************************************************/
-
     if (
-      this.__internal__currentDungeonData &&
+      this.__internal__currentDungeonData != null &&
       this.__internal__doesDungeonHaveAnyPokemonNeedingCure(
         this.__internal__currentDungeonData.dungeon,
-
         true,
       )
     ) {
       this.__internal__captureInfectedPokemons();
-
       return;
     }
 
     this.__internal__setNextPokerusDungeon();
 
-    if (this.__internal__currentDungeonData) {
+    if (this.__internal__currentDungeonData != null) {
       this.__internal__captureInfectedPokemons();
-
       return;
     }
-
-    /*************************************************************************
-     * COMPLETE
-     *************************************************************************/
 
     Automation.Menu.forceAutomationState(
       Automation.Focus.Settings.FeatureEnabled,
@@ -346,7 +357,6 @@ class AutomationFocusPokerusCure {
 
     Automation.Notifications.sendWarningNotif(
       "No more route, nor dungeon, available to cure pokémon from pokérus.\nTurning the feature off",
-
       "Focus",
     );
   }
@@ -364,13 +374,11 @@ class AutomationFocusPokerusCure {
 
     if (!Automation.Focus.__ensurePlayerHasEnoughBalls(selectedPokeball)) {
       this.__internal__disableCaptureFilter();
-
       return;
     }
 
-    if (this.__internal__currentRouteData) {
+    if (this.__internal__currentRouteData != null) {
       this.__internal__captureContagiousOnRoute();
-
       return;
     }
 
@@ -382,52 +390,97 @@ class AutomationFocusPokerusCure {
     \*********************************************************************/
 
   static __internal__captureContagiousOnRoute() {
-    const routeA = this.__internal__currentRouteData.route;
+    const targetRoute = this.__internal__currentRouteData.route;
 
-    /*
-     * Prefer:
-     *
-     * A = Contagious
-     * B = Contagious
-     *
-     * But if A is the final target route:
-     *
-     * A = Contagious
-     * B = completed route
-     */
-    const routeB = this.__internal__getBestSecondaryRoute(routeA);
+    /*************************************************************************
+     * BOUNCE DISABLED -> CLASSIC ROUTE FARM
+     *************************************************************************/
 
-    if (
-      this.__internal__secondaryRoute?.region !== routeB?.region ||
-      this.__internal__secondaryRoute?.number !== routeB?.number
-    ) {
-      this.__internal__secondaryRoute = routeB;
+    if (!this.__internal__isBounceEnabled()) {
+      /*
+       * Route B is not used in classic mode.
+       */
+      this.__internal__secondaryRoute = null;
+
+      /*
+       * Never catch normal Pokémon while searching.
+       */
+      this.__internal__disableCaptureFilter();
+
+      let enemy = Battle.enemyPokemon();
+
+      if (this.__internal__isWantedContagiousEnemy(enemy)) {
+        this.__internal__lockContagiousEnemy(enemy);
+        return;
+      }
+
+      /*
+       * Stay on route A and let normal Auto Click combat
+       * generate encounters one after another.
+       */
+      if (
+        player.region !== targetRoute.region ||
+        player.route !== targetRoute.number
+      ) {
+        Automation.Utils.Route.moveToRoute(
+          targetRoute.number,
+          targetRoute.region,
+        );
+
+        /*
+         * Moving generates a fresh encounter immediately,
+         * so inspect it before Auto Click can move on.
+         */
+        enemy = Battle.enemyPokemon();
+
+        if (this.__internal__isWantedContagiousEnemy(enemy)) {
+          this.__internal__lockContagiousEnemy(enemy);
+        }
+      }
+
+      return;
     }
 
+    /*************************************************************************
+     * BOUNCE ENABLED
+     *************************************************************************/
+
     /*
-     * Search mode:
-     * don't catch normal Pokémon.
+     * Recompute the best B every pass:
+     * 1. Prefer another Contagious route.
+     * 2. If A is the last Contagious route, use a completed route.
      */
+    const bestSecondaryRoute =
+      this.__internal__getBestSecondaryRoute(targetRoute);
+
+    if (
+      this.__internal__secondaryRoute?.region !== bestSecondaryRoute?.region ||
+      this.__internal__secondaryRoute?.number !== bestSecondaryRoute?.number
+    ) {
+      this.__internal__secondaryRoute = bestSecondaryRoute;
+    }
+
     this.__internal__disableCaptureFilter();
 
     const currentEnemy = Battle.enemyPokemon();
 
     if (this.__internal__isWantedContagiousEnemy(currentEnemy)) {
       this.__internal__lockContagiousEnemy(currentEnemy);
-
       return;
     }
 
-    /*
-     * This should only happen if there is
-     * literally no second accessible route.
-     */
-    if (!this.__internal__secondaryRoute) {
-      if (player.region !== routeA.region || player.route !== routeA.number) {
-        Automation.Utils.Route.moveToRoute(
-          routeA.number,
+    /*************************************************************************
+     * LITERALLY ONLY ONE ACCESSIBLE ROUTE EXISTS
+     *************************************************************************/
 
-          routeA.region,
+    if (this.__internal__secondaryRoute == null) {
+      if (
+        player.region !== targetRoute.region ||
+        player.route !== targetRoute.number
+      ) {
+        Automation.Utils.Route.moveToRoute(
+          targetRoute.number,
+          targetRoute.region,
         );
       }
 
@@ -442,23 +495,17 @@ class AutomationFocusPokerusCure {
     \******************************/
 
   static __internal__performRouteBounceBurst() {
-    const routeA = this.__internal__currentRouteData?.route;
+    const targetRoute = this.__internal__currentRouteData?.route;
+    const secondaryRoute = this.__internal__secondaryRoute;
 
-    const routeB = this.__internal__secondaryRoute;
-
-    if (!routeA || !routeB) {
+    if (!targetRoute || !secondaryRoute) {
       return;
     }
 
     let enemy = Battle.enemyPokemon();
 
-    /*************************************************************************
-     * CURRENT ENCOUNTER
-     *************************************************************************/
-
     if (this.__internal__isWantedContagiousEnemy(enemy)) {
       this.__internal__lockContagiousEnemy(enemy);
-
       return;
     }
 
@@ -466,24 +513,25 @@ class AutomationFocusPokerusCure {
      * PARK ON B
      *************************************************************************/
 
-    if (player.region !== routeB.region || player.route !== routeB.number) {
+    if (
+      player.region !== secondaryRoute.region ||
+      player.route !== secondaryRoute.number
+    ) {
       Automation.Utils.Route.moveToRoute(
-        routeB.number,
-
-        routeB.region,
+        secondaryRoute.number,
+        secondaryRoute.region,
       );
 
       enemy = Battle.enemyPokemon();
 
       if (this.__internal__isWantedContagiousEnemy(enemy)) {
         this.__internal__lockContagiousEnemy(enemy);
-
         return;
       }
     }
 
     /*************************************************************************
-     * A <-> B
+     * A <-> B BURST
      *************************************************************************/
 
     for (let i = 0; i < this.__internal__burstSize; i++) {
@@ -496,16 +544,14 @@ class AutomationFocusPokerusCure {
        **********************************************************************/
 
       Automation.Utils.Route.moveToRoute(
-        routeA.number,
-
-        routeA.region,
+        targetRoute.number,
+        targetRoute.region,
       );
 
       enemy = Battle.enemyPokemon();
 
       if (this.__internal__isWantedContagiousEnemy(enemy)) {
         this.__internal__lockContagiousEnemy(enemy);
-
         return;
       }
 
@@ -514,57 +560,54 @@ class AutomationFocusPokerusCure {
        **********************************************************************/
 
       Automation.Utils.Route.moveToRoute(
-        routeB.number,
-
-        routeB.region,
+        secondaryRoute.number,
+        secondaryRoute.region,
       );
 
       enemy = Battle.enemyPokemon();
 
       if (this.__internal__isWantedContagiousEnemy(enemy)) {
         this.__internal__lockContagiousEnemy(enemy);
-
         return;
       }
     }
   }
 
   /************************\
-    |*   BEST ROUTE B     *|
+    |*  SECONDARY ROUTE B *|
     \************************/
 
-  static __internal__getBestSecondaryRoute(routeA) {
+  static __internal__getBestSecondaryRoute(targetRoute) {
     /*
-     * First try to use another route
-     * containing Contagious Pokémon.
+     * Preferred behaviour:
+     * B also has a currently available Contagious Pokémon.
      */
-    const contagiousRoute = this.__internal__getNextContagiousRoute(routeA);
+    const contagiousRoute =
+      this.__internal__getNextContagiousRoute(targetRoute);
 
     if (contagiousRoute) {
       return contagiousRoute;
     }
 
     /*
-     * Only A remains.
-     *
-     * Keep the fast reroll by using
-     * a completed route as B.
+     * A is the last Contagious route in the region.
+     * Keep the bounce alive using a completed route.
      */
-    return this.__internal__getCompletedBounceRoute(routeA);
+    return this.__internal__getCompletedBounceRoute(targetRoute);
   }
 
   /************************\
-    |* CONTAGIOUS ROUTE B *|
+    |* NEXT CONTAGIOUS B  *|
     \************************/
 
-  static __internal__getNextContagiousRoute(routeA) {
-    const indexA = this.__internal__pokerusRouteData.findIndex(
+  static __internal__getNextContagiousRoute(targetRoute) {
+    const targetIndex = this.__internal__pokerusRouteData.findIndex(
       (data) =>
-        data.route.region === routeA.region &&
-        data.route.number === routeA.number,
+        data.route.number === targetRoute.number &&
+        data.route.region === targetRoute.region,
     );
 
-    if (indexA === -1) {
+    if (targetIndex === -1) {
       return null;
     }
 
@@ -573,113 +616,126 @@ class AutomationFocusPokerusCure {
       offset < this.__internal__pokerusRouteData.length;
       offset++
     ) {
-      const route =
+      const candidate =
         this.__internal__pokerusRouteData[
-          (indexA + offset) % this.__internal__pokerusRouteData.length
+          (targetIndex + offset) % this.__internal__pokerusRouteData.length
         ].route;
 
-      if (route.region !== routeA.region || route.number === routeA.number) {
+      if (candidate.region !== targetRoute.region) {
+        continue;
+      }
+
+      if (candidate.number === targetRoute.number) {
         continue;
       }
 
       if (
         !Automation.Utils.Route.canMoveToRoute(
-          route.number,
-
-          route.region,
-
-          route,
+          candidate.number,
+          candidate.region,
+          candidate,
         )
       ) {
         continue;
       }
 
       if (
-        !this.__internal__doesRouteHaveAnyPokemonNeedingCure(
-          route,
-
-          true,
-        )
+        !this.__internal__doesRouteHaveAnyPokemonNeedingCure(candidate, true)
       ) {
         continue;
       }
 
-      return route;
+      return candidate;
     }
 
     return null;
   }
 
   /************************\
-    |* COMPLETED ROUTE B  *|
+    |* COMPLETED BOUNCE B *|
     \************************/
 
-  static __internal__getCompletedBounceRoute(routeA) {
+  static __internal__getCompletedBounceRoute(targetRoute) {
     /*
      * IMPORTANT:
      *
-     * Use ALL routes in the region here,
-     * not only __internal__pokerusRouteData.
+     * Use ALL accessible routes from the region here, not only routes that
+     * were initially present in __internal__pokerusRouteData.
      *
-     * This means the feature still works
-     * if it is started when there is already
-     * only ONE Contagious route remaining.
+     * This means the bounce still works even if the Focus is started when
+     * there is already only one route left with Contagious Pokémon.
      */
-    const routes = Routes.getRoutesByRegion(routeA.region);
+    const sameRegionRoutes = Routes.getRoutesByRegion(
+      targetRoute.region,
+    ).filter(
+      (route) =>
+        route.number !== targetRoute.number &&
+        Automation.Utils.Route.canMoveToRoute(
+          route.number,
+          route.region,
+          route,
+        ),
+    );
 
-    const isValid = (route) =>
+    if (sameRegionRoutes.length === 0) {
+      return null;
+    }
+
+    const isCompletedBounceCandidate = (route) =>
       route &&
-      route.number !== routeA.number &&
+      route.region === targetRoute.region &&
+      route.number !== targetRoute.number &&
       Automation.Utils.Route.canMoveToRoute(
         route.number,
-
         route.region,
-
         route,
       ) &&
-      !this.__internal__doesRouteHaveAnyPokemonNeedingCure(
-        route,
-
-        true,
-      );
+      !this.__internal__doesRouteHaveAnyPokemonNeedingCure(route, true);
 
     /*************************************************************************
-     * 1. MOST RECENTLY COMPLETED ROUTE
+     * 1. MOST RECENTLY COMPLETED ROUTE DURING THIS SESSION
      *************************************************************************/
 
     if (this.__internal__lastCompletedRoute) {
-      const remembered = routes.find(
+      const rememberedRoute = sameRegionRoutes.find(
         (route) =>
-          route.number === this.__internal__lastCompletedRoute.number &&
-          route.region === this.__internal__lastCompletedRoute.region,
+          route.region === this.__internal__lastCompletedRoute.region &&
+          route.number === this.__internal__lastCompletedRoute.number,
       );
 
-      if (isValid(remembered)) {
-        return remembered;
+      if (isCompletedBounceCandidate(rememberedRoute)) {
+        return rememberedRoute;
       }
     }
 
     /*************************************************************************
-     * 2. PREVIOUS COMPLETED ROUTE
+     * 2. PREVIOUS COMPLETED ROUTE IN POKÉCLICKER'S REGION ROUTE ORDER
      *************************************************************************/
 
-    const indexA = routes.findIndex((route) => route.number === routeA.number);
+    const nativeRoutes = Routes.getRoutesByRegion(targetRoute.region);
 
-    if (indexA !== -1) {
-      for (let offset = 1; offset < routes.length; offset++) {
-        const route = routes[(indexA - offset + routes.length) % routes.length];
+    const targetIndex = nativeRoutes.findIndex(
+      (route) => route.number === targetRoute.number,
+    );
 
-        if (isValid(route)) {
-          return route;
+    if (targetIndex !== -1) {
+      for (let offset = 1; offset < nativeRoutes.length; offset++) {
+        const index =
+          (targetIndex - offset + nativeRoutes.length) % nativeRoutes.length;
+
+        const candidate = nativeRoutes[index];
+
+        if (isCompletedBounceCandidate(candidate)) {
+          return candidate;
         }
       }
     }
 
     /*************************************************************************
-     * 3. ANY COMPLETED ACCESSIBLE ROUTE
+     * 3. ANY COMPLETED ACCESSIBLE ROUTE IN THE SAME REGION
      *************************************************************************/
 
-    return routes.find(isValid) ?? null;
+    return sameRegionRoutes.find(isCompletedBounceCandidate) ?? null;
   }
 
   /************************\
@@ -687,19 +743,21 @@ class AutomationFocusPokerusCure {
     \************************/
 
   static __internal__isWantedContagiousEnemy(enemy) {
-    if (!enemy?.name) {
+    if (!enemy) {
       return false;
     }
 
-    const partyPokemon = App.game.party.getPokemonByName(enemy.name);
+    const pokemonName = enemy.name;
+
+    if (!pokemonName) {
+      return false;
+    }
+
+    const partyPokemon = App.game.party.getPokemonByName(pokemonName);
 
     if (partyPokemon?.pokerus !== GameConstants.Pokerus.Contagious) {
       return false;
     }
-
-    /*************************************************************************
-     * ALTERNATE FORMS
-     *************************************************************************/
 
     if (
       Automation.Utils.LocalStorage.getValue(
@@ -710,21 +768,17 @@ class AutomationFocusPokerusCure {
       return false;
     }
 
-    /*************************************************************************
-     * ULTRA BEAST
-     *************************************************************************/
-
-    if (GameConstants.UltraBeastType[enemy.name] != undefined) {
-      const allowed =
+    if (GameConstants.UltraBeastType[pokemonName] != undefined) {
+      const beastBallsAllowed =
         Automation.Utils.LocalStorage.getValue(
           this.__internal__advancedSettings.AllowBeastBallUsage,
         ) === "true";
 
-      const hasBall =
+      const hasBeastBall =
         App.game.pokeballs.getBallQuantity(GameConstants.Pokeball.Beastball) >
         0;
 
-      if (!allowed || !hasBall) {
+      if (!beastBallsAllowed || !hasBeastBall) {
         return false;
       }
     }
@@ -733,7 +787,7 @@ class AutomationFocusPokerusCure {
   }
 
   /************************\
-    |*     LOCK TARGET    *|
+    |*      LOCK TARGET   *|
     \************************/
 
   static __internal__lockContagiousEnemy(enemy) {
@@ -744,21 +798,17 @@ class AutomationFocusPokerusCure {
 
     if (!Automation.Focus.__ensurePlayerHasEnoughBalls(pokeballToUse)) {
       this.__internal__disableCaptureFilter();
-
       return;
     }
 
     this.__internal__lockedEnemy = enemy;
 
     /*
-     * Save which route produced the encounter.
-     *
-     * This allows B to become the final
-     * completed bounce route if needed.
+     * Remember whether the target was found on A or B.
+     * If this capture finishes that route, it can become the final bounce route.
      */
     this.__internal__lockedRoute = {
       region: player.region,
-
       number: player.route,
     };
 
@@ -779,7 +829,6 @@ class AutomationFocusPokerusCure {
     }
 
     Automation.Utils.Pokeball.disableAutomationFilter();
-
     this.__internal__captureFilterEnabled = false;
   }
 
@@ -796,14 +845,22 @@ class AutomationFocusPokerusCure {
   }
 
   /************************\
-    |*   FIND ROUTE OBJ   *|
+    |*      BOUNCE        *|
     \************************/
 
-  static __internal__findRouteObject(
-    region,
+  static __internal__isBounceEnabled() {
+    return (
+      Automation.Utils.LocalStorage.getValue(
+        this.__internal__advancedSettings.EnableBounce,
+      ) === "true"
+    );
+  }
 
-    number,
-  ) {
+  /************************\
+    |*    FIND ROUTE OBJ  *|
+    \************************/
+
+  static __internal__findRouteObject(region, number) {
     return (
       this.__internal__pokerusRouteData.find(
         (data) => data.route.region === region && data.route.number === number,
@@ -820,7 +877,7 @@ class AutomationFocusPokerusCure {
     \*********************************************************************/
 
   static __internal__captureContagiousInDungeon() {
-    if (!this.__internal__currentDungeonData) {
+    if (this.__internal__currentDungeonData == null) {
       return;
     }
 
@@ -837,28 +894,16 @@ class AutomationFocusPokerusCure {
 
     const selectedPokeball = this.__internal__getSelectedPokeball();
 
-    const data = this.__internal__currentDungeonData;
-
-    /*************************************************************************
-     * TOKENS
-     *************************************************************************/
-
     if (
       App.game.wallet.currencies[GameConstants.Currency.dungeonToken]() <
-      data.dungeon.tokenCost
+      this.__internal__currentDungeonData.dungeon.tokenCost
     ) {
       this.__internal__disableCaptureFilter();
-
       Automation.Focus.__goToBestRouteForDungeonToken();
-
       return;
     }
 
-    /*************************************************************************
-     * BALL
-     *************************************************************************/
-
-    const pokeballToUse = data.needsBeastBall
+    const pokeballToUse = this.__internal__currentDungeonData.needsBeastBall
       ? GameConstants.Pokeball.Beastball
       : selectedPokeball;
 
@@ -866,29 +911,22 @@ class AutomationFocusPokerusCure {
 
     this.__internal__captureFilterEnabled = true;
 
-    /*************************************************************************
-     * MOVE
-     *************************************************************************/
-
-    if (!Automation.Utils.Route.isPlayerInTown(data.dungeon.name)) {
-      Automation.Utils.Route.moveToTown(data.dungeon.name);
-
-      setTimeout(
-        this.__internal__captureInfectedPokemons.bind(this),
-
-        1000,
+    if (
+      !Automation.Utils.Route.isPlayerInTown(
+        this.__internal__currentDungeonData.dungeon.name,
+      )
+    ) {
+      Automation.Utils.Route.moveToTown(
+        this.__internal__currentDungeonData.dungeon.name,
       );
+
+      setTimeout(this.__internal__captureInfectedPokemons.bind(this), 1000);
 
       return;
     }
 
-    /*************************************************************************
-     * AUTO DUNGEON
-     *************************************************************************/
-
     Automation.Menu.forceAutomationState(
       Automation.Dungeon.Settings.FeatureEnabled,
-
       true,
     );
 
@@ -896,8 +934,7 @@ class AutomationFocusPokerusCure {
       function () {
         if (
           !this.__internal__doesDungeonHaveAnyPokemonNeedingCure(
-            data.dungeon,
-
+            this.__internal__currentDungeonData.dungeon,
             true,
           )
         ) {
@@ -906,26 +943,27 @@ class AutomationFocusPokerusCure {
       }.bind(this),
     );
 
-    Automation.Dungeon.AutomationRequestedModes =
+    if (
       this.__internal__doesAnyPokemonNeedCuring(
-        data.nonBossPokemons,
-
+        this.__internal__currentDungeonData.nonBossPokemons,
         true,
       )
-        ? [Automation.Dungeon.InternalModes.ForcePokemonFight]
-        : [Automation.Dungeon.InternalModes.ForceDungeonCompletion];
-
-    /*************************************************************************
-     * MIMICS
-     *************************************************************************/
+    ) {
+      Automation.Dungeon.AutomationRequestedModes = [
+        Automation.Dungeon.InternalModes.ForcePokemonFight,
+      ];
+    } else {
+      Automation.Dungeon.AutomationRequestedModes = [
+        Automation.Dungeon.InternalModes.ForceDungeonCompletion,
+      ];
+    }
 
     if (
       Automation.Utils.LocalStorage.getValue(
         this.__internal__advancedSettings.IncludeMimicPokemons,
       ) === "true" &&
       this.__internal__doesAnyPokemonNeedCuring(
-        data.mimicPokemons,
-
+        this.__internal__currentDungeonData.mimicPokemons,
         true,
       )
     ) {
@@ -941,7 +979,7 @@ class AutomationFocusPokerusCure {
 
   static __internal__setNextPokerusRoute() {
     if (
-      this.__internal__currentRouteData &&
+      this.__internal__currentRouteData != null &&
       !this.__internal__doesRouteHaveAnyPokemonNeedingCure(
         this.__internal__currentRouteData.route,
       )
@@ -951,59 +989,48 @@ class AutomationFocusPokerusCure {
       );
 
       if (index !== -1) {
-        this.__internal__pokerusRouteData.splice(
-          index,
-
-          1,
-        );
+        this.__internal__pokerusRouteData.splice(index, 1);
       }
     }
 
-    const previous = this.__internal__currentRouteData?.route;
+    const previousRoute = this.__internal__currentRouteData?.route;
 
     this.__internal__currentRouteData =
       this.__internal__pokerusRouteData.find(
         (data) =>
           this.__internal__doesRouteHaveAnyPokemonNeedingCure(
             data.route,
-
             true,
           ) &&
           Automation.Utils.Route.canMoveToRoute(
             data.route.number,
-
             data.route.region,
-
             data.route,
           ),
+        this,
       ) ?? null;
 
-    if (!this.__internal__currentRouteData) {
+    if (this.__internal__currentRouteData) {
+      this.__internal__currentRouteData.needsBeastBall =
+        this.__internal__doesRouteNeedBeastBalls(
+          this.__internal__currentRouteData.route,
+        );
+
+      this.__internal__currentDungeonData = null;
+
+      const newRoute = this.__internal__currentRouteData.route;
+
+      if (
+        previousRoute?.number !== newRoute.number ||
+        previousRoute?.region !== newRoute.region
+      ) {
+        this.__internal__secondaryRoute = null;
+        this.__internal__lockedEnemy = null;
+        this.__internal__lockedRoute = null;
+        this.__internal__disableCaptureFilter();
+      }
+    } else {
       this.__internal__secondaryRoute = null;
-
-      return;
-    }
-
-    this.__internal__currentRouteData.needsBeastBall =
-      this.__internal__doesRouteNeedBeastBalls(
-        this.__internal__currentRouteData.route,
-      );
-
-    this.__internal__currentDungeonData = null;
-
-    const current = this.__internal__currentRouteData.route;
-
-    if (
-      previous?.number !== current.number ||
-      previous?.region !== current.region
-    ) {
-      this.__internal__secondaryRoute = null;
-
-      this.__internal__lockedEnemy = null;
-
-      this.__internal__lockedRoute = null;
-
-      this.__internal__disableCaptureFilter();
     }
   }
 
@@ -1013,7 +1040,7 @@ class AutomationFocusPokerusCure {
 
   static __internal__setNextPokerusDungeon() {
     if (
-      this.__internal__currentDungeonData &&
+      this.__internal__currentDungeonData != null &&
       !this.__internal__doesDungeonHaveAnyPokemonNeedingCure(
         this.__internal__currentDungeonData.dungeon,
       )
@@ -1023,11 +1050,7 @@ class AutomationFocusPokerusCure {
       );
 
       if (index !== -1) {
-        this.__internal__pokerusDungeonData.splice(
-          index,
-
-          1,
-        );
+        this.__internal__pokerusDungeonData.splice(index, 1);
       }
     }
 
@@ -1036,37 +1059,33 @@ class AutomationFocusPokerusCure {
         (data) =>
           this.__internal__doesDungeonHaveAnyPokemonNeedingCure(
             data.dungeon,
-
             true,
           ) &&
           Automation.Utils.Route.canMoveToTown(TownList[data.dungeon.name]),
+        this,
       ) ?? null;
 
-    if (!this.__internal__currentDungeonData) {
-      return;
+    if (this.__internal__currentDungeonData != null) {
+      this.__internal__currentRouteData = null;
+      this.__internal__secondaryRoute = null;
+
+      this.__internal__currentDungeonData.nonBossPokemons =
+        this.__internal__getEveryPokemonForDungeon(
+          this.__internal__currentDungeonData.dungeon,
+          false,
+          true,
+        );
+
+      this.__internal__currentDungeonData.mimicPokemons =
+        this.__internal__getEveryMimicPokemonForDungeon(
+          this.__internal__currentDungeonData.dungeon,
+        );
+
+      this.__internal__currentDungeonData.needsBeastBall =
+        this.__internal__doesDungeonNeedBeastBalls(
+          this.__internal__currentDungeonData.dungeon,
+        );
     }
-
-    this.__internal__currentRouteData = null;
-
-    this.__internal__secondaryRoute = null;
-
-    const data = this.__internal__currentDungeonData;
-
-    data.nonBossPokemons = this.__internal__getEveryPokemonForDungeon(
-      data.dungeon,
-
-      false,
-
-      true,
-    );
-
-    data.mimicPokemons = this.__internal__getEveryMimicPokemonForDungeon(
-      data.dungeon,
-    );
-
-    data.needsBeastBall = this.__internal__doesDungeonNeedBeastBalls(
-      data.dungeon,
-    );
   }
 
   /************************\
@@ -1081,34 +1100,26 @@ class AutomationFocusPokerusCure {
         route.region <= GameConstants.MAX_AVAILABLE_REGION &&
         this.__internal__doesRouteHaveAnyPokemonNeedingCure(route)
       ) {
-        this.__internal__pokerusRouteData.push({
-          route,
-        });
+        this.__internal__pokerusRouteData.push({ route });
       }
     }
 
-    /*
-     * Preserve original behaviour:
-     * Magikarp Jump routes last.
-     */
-    this.__internal__pokerusRouteData.sort((a, b) => {
-      const aMagikarp = Automation.Utils.Route.isInMagikarpJumpIsland(
-        a.route.region,
-
-        a.route.subRegion,
+    this.__internal__pokerusRouteData.sort((routeA, routeB) => {
+      const isAMagikarp = Automation.Utils.Route.isInMagikarpJumpIsland(
+        routeA.route.region,
+        routeA.route.subRegion,
       );
 
-      const bMagikarp = Automation.Utils.Route.isInMagikarpJumpIsland(
-        b.route.region,
-
-        b.route.subRegion,
+      const isBMagikarp = Automation.Utils.Route.isInMagikarpJumpIsland(
+        routeB.route.region,
+        routeB.route.subRegion,
       );
 
-      if (aMagikarp && !bMagikarp) {
+      if (isAMagikarp && !isBMagikarp) {
         return 1;
       }
 
-      if (bMagikarp && !aMagikarp) {
+      if (isBMagikarp && !isAMagikarp) {
         return -1;
       }
 
@@ -1133,9 +1144,7 @@ class AutomationFocusPokerusCure {
       const dungeon = dungeonList[dungeonName];
 
       if (this.__internal__doesDungeonHaveAnyPokemonNeedingCure(dungeon)) {
-        this.__internal__pokerusDungeonData.push({
-          dungeon,
-        });
+        this.__internal__pokerusDungeonData.push({ dungeon });
       }
     }
   }
@@ -1146,16 +1155,15 @@ class AutomationFocusPokerusCure {
 
   static __internal__doesRouteHaveAnyPokemonNeedingCure(
     route,
-
     onlyConsiderAvailableContagiousPokemons = false,
   ) {
+    const pokemonList = this.__internal__getEveryPokemonForRoute(
+      route,
+      onlyConsiderAvailableContagiousPokemons,
+    );
+
     return this.__internal__doesAnyPokemonNeedCuring(
-      this.__internal__getEveryPokemonForRoute(
-        route,
-
-        onlyConsiderAvailableContagiousPokemons,
-      ),
-
+      pokemonList,
       onlyConsiderAvailableContagiousPokemons,
     );
   }
@@ -1166,19 +1174,16 @@ class AutomationFocusPokerusCure {
 
   static __internal__doesDungeonHaveAnyPokemonNeedingCure(
     dungeon,
-
     onlyConsiderAvailableContagiousPokemons = false,
   ) {
     const pokemonList = this.__internal__getEveryPokemonForDungeon(
       dungeon,
-
       onlyConsiderAvailableContagiousPokemons,
     );
 
     if (
       this.__internal__doesAnyPokemonNeedCuring(
         pokemonList,
-
         onlyConsiderAvailableContagiousPokemons,
       )
     ) {
@@ -1194,9 +1199,10 @@ class AutomationFocusPokerusCure {
       return false;
     }
 
-    return this.__internal__doesAnyPokemonNeedCuring(
-      this.__internal__getEveryMimicPokemonForDungeon(dungeon),
+    const mimicList = this.__internal__getEveryMimicPokemonForDungeon(dungeon);
 
+    return this.__internal__doesAnyPokemonNeedCuring(
+      mimicList,
       onlyConsiderAvailableContagiousPokemons,
     );
   }
@@ -1207,7 +1213,6 @@ class AutomationFocusPokerusCure {
 
   static __internal__doesAnyPokemonNeedCuring(
     pokemonList,
-
     onlyConsiderAvailableContagiousPokemons,
   ) {
     const skipUltraBeasts =
@@ -1241,18 +1246,16 @@ class AutomationFocusPokerusCure {
     \************************/
 
   static __internal__doesRouteNeedBeastBalls(route) {
-    return this.__internal__getEveryPokemonForRoute(
-      route,
+    return this.__internal__getEveryPokemonForRoute(route, true).every(
+      (pokemonName) => {
+        const pokemon = App.game.party.getPokemonByName(pokemonName);
 
-      true,
-    ).every((pokemonName) => {
-      const pokemon = App.game.party.getPokemonByName(pokemonName);
-
-      return (
-        pokemon?.pokerus != GameConstants.Pokerus.Contagious ||
-        GameConstants.UltraBeastType[pokemonName] != undefined
-      );
-    });
+        return (
+          pokemon?.pokerus != GameConstants.Pokerus.Contagious ||
+          GameConstants.UltraBeastType[pokemonName] != undefined
+        );
+      },
+    );
   }
 
   /************************\
@@ -1260,11 +1263,7 @@ class AutomationFocusPokerusCure {
     \************************/
 
   static __internal__doesDungeonNeedBeastBalls(dungeon) {
-    let pokemonList = this.__internal__getEveryPokemonForDungeon(
-      dungeon,
-
-      true,
-    );
+    let pokemonList = this.__internal__getEveryPokemonForDungeon(dungeon, true);
 
     if (
       Automation.Utils.LocalStorage.getValue(
@@ -1292,12 +1291,10 @@ class AutomationFocusPokerusCure {
 
   static __internal__getEveryPokemonForRoute(
     route,
-
     onlyConsiderAvailablePokemons,
   ) {
     const possiblePokemons = Routes.getRoute(
       route.region,
-
       route.number,
     )?.pokemon;
 
@@ -1307,37 +1304,22 @@ class AutomationFocusPokerusCure {
 
     let pokemonList = [...possiblePokemons.land];
 
-    /*************************************************************************
-     * WATER
-     *************************************************************************/
-
     if (
       !onlyConsiderAvailablePokemons ||
-      pokemonList.length === 0 ||
+      pokemonList.length == 0 ||
       App.game.keyItems.hasKeyItem(KeyItemType.Super_rod)
     ) {
       pokemonList = pokemonList.concat(possiblePokemons.water);
     }
 
-    /*************************************************************************
-     * HEADBUTT
-     *************************************************************************/
-
     pokemonList = pokemonList.concat(possiblePokemons.headbutt);
-
-    /*************************************************************************
-     * SPECIAL
-     *************************************************************************/
 
     let specialPokemonList = [...possiblePokemons.special];
 
     if (onlyConsiderAvailablePokemons) {
-      specialPokemonList = specialPokemonList.filter((p) =>
-        this.__internal__isRequirementCompleted(
-          p.req,
-
-          route.region,
-        ),
+      specialPokemonList = specialPokemonList.filter(
+        (p) => this.__internal__isRequirementCompleted(p.req, route.region),
+        this,
       );
     }
 
@@ -1345,17 +1327,9 @@ class AutomationFocusPokerusCure {
       ...specialPokemonList.map((p) => p.pokemon),
     );
 
-    /*************************************************************************
-     * REMOVE DUPLICATES
-     *************************************************************************/
-
     pokemonList = pokemonList.filter(
       (item, index) => pokemonList.indexOf(item) === index,
     );
-
-    /*************************************************************************
-     * ALTERNATE FORMS
-     *************************************************************************/
 
     if (
       onlyConsiderAvailablePokemons &&
@@ -1377,14 +1351,11 @@ class AutomationFocusPokerusCure {
 
   static __internal__getEveryPokemonForDungeon(
     dungeon,
-
     onlyConsiderAvailablePokemons,
-
     skipBosses = false,
   ) {
     let pokemonList = this.__internal__getPokemonNames(
       dungeon.normalEncounterList,
-
       onlyConsiderAvailablePokemons,
     );
 
@@ -1392,27 +1363,16 @@ class AutomationFocusPokerusCure {
       const dungeonRegion = TownList[dungeon.name].region;
 
       for (const boss of dungeon.bossList) {
-        /*********************************************************************
-         * POKÉMON BOSS
-         *********************************************************************/
-
-        if (
-          Automation.Utils.isInstanceOf(
-            boss,
-
-            "DungeonBossPokemon",
-          )
-        ) {
+        if (Automation.Utils.isInstanceOf(boss, "DungeonBossPokemon")) {
           if (onlyConsiderAvailablePokemons) {
-            const locked = boss.options?.requirement
+            const isBossLocked = boss.options?.requirement
               ? !this.__internal__isRequirementCompleted(
                   boss.options.requirement,
-
                   dungeonRegion,
                 )
               : false;
 
-            if (locked) {
+            if (isBossLocked) {
               continue;
             }
           }
@@ -1420,17 +1380,7 @@ class AutomationFocusPokerusCure {
           if (!pokemonList.includes(boss.name)) {
             pokemonList.push(boss.name);
           }
-        } else if (
-
-        /*********************************************************************
-         * TRAINER
-         *********************************************************************/
-          Automation.Utils.isInstanceOf(
-            boss,
-
-            "DungeonTrainer",
-          )
-        ) {
+        } else if (Automation.Utils.isInstanceOf(boss, "DungeonTrainer")) {
           const shadowPokemons = boss.team.filter((p) => p.shadow == 1);
 
           for (const pokemon of shadowPokemons) {
@@ -1441,10 +1391,6 @@ class AutomationFocusPokerusCure {
         }
       }
     }
-
-    /*************************************************************************
-     * ALTERNATE FORMS
-     *************************************************************************/
 
     if (
       onlyConsiderAvailablePokemons &&
@@ -1488,7 +1434,6 @@ class AutomationFocusPokerusCure {
 
   static __internal__getPokemonNames(
     encounterList,
-
     onlyConsiderAvailablePokemons,
   ) {
     return encounterList
@@ -1505,27 +1450,16 @@ class AutomationFocusPokerusCure {
     |*    REQUIREMENTS    *|
     \************************/
 
-  static __internal__isRequirementCompleted(
-    requirement,
-
-    region,
-  ) {
+  static __internal__isRequirementCompleted(requirement, region) {
     const requirements = Automation.Utils.isInstanceOf(
       requirement,
-
       "MultiRequirement",
     )
       ? requirement.requirements
       : [requirement];
 
     for (const req of requirements) {
-      if (
-        Automation.Utils.isInstanceOf(
-          req,
-
-          "WeatherRequirement",
-        )
-      ) {
+      if (Automation.Utils.isInstanceOf(req, "WeatherRequirement")) {
         if (!req.weather.includes(Weather.regionalWeather[region]())) {
           return false;
         }
