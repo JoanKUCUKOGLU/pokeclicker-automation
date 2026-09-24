@@ -218,7 +218,7 @@ class AutomationItems {
       "The option stays enabled while Flow recharges.";
 
     const purifyButton = Automation.Menu.addAutomationButton(
-      "Purify Chamber",
+      "Purify",
       this.Settings.AutoPurify,
       purifyTooltip,
       this.__internal__purifyContainer,
