@@ -199,7 +199,7 @@ class AutomationFreeQuests {
     /*
      * Paid refresh option.
      *
-     * This is now hidden inside the expandable settings panel instead
+     * This is hidden inside the expandable settings panel instead
      * of permanently taking space in the main Automation menu.
      */
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
@@ -209,7 +209,8 @@ class AutomationFreeQuests {
       "Allow Free Quests to spend Pokédollars refreshing Daily Quests" +
         Automation.Menu.TooltipSeparator +
         "OFF: only the free Daily Quest refresh will be used.\n" +
-        "ON: paid refreshes may also be used.",
+        "ON: paid refreshes may also be used.\n" +
+        "Refreshes always wait until all active quests are finished.",
 
       settingsPanel,
     );
@@ -521,15 +522,40 @@ class AutomationFreeQuests {
    ***************************************************************************/
 
   static __internal__tryRefreshQuests() {
+    /*************************************************************************
+     * IMPORTANT:
+     *
+     * NEVER refresh while at least one started quest is still active.
+     *
+     * Example:
+     *
+     * Hatch Eggs: 14 / 20
+     * Mine Layers: finished
+     *
+     * Even if a quest slot becomes free after claiming Mine Layers,
+     * Free Quests waits until Hatch Eggs is also finished.
+     *************************************************************************/
+
+    const activeQuests = App.game.quests.currentQuests();
+
+    if (activeQuests.length > 0) {
+      return;
+    }
+
+    /*************************************************************************
+     * CHECK AVAILABLE QUEST SLOT
+     *************************************************************************/
+
     /*
      * Don't refresh unless we actually have room to start another quest.
-     *
-     * This prevents Free Quests from interfering when the player's active
-     * quest slots are already full.
      */
     if (!App.game.quests.canStartNewQuest()) {
       return;
     }
+
+    /*************************************************************************
+     * DON'T REFRESH IF A PASSIVE QUEST IS ALREADY AVAILABLE
+     *************************************************************************/
 
     /*
      * We already have another supported quest waiting.
@@ -539,6 +565,10 @@ class AutomationFreeQuests {
     if (this.__internal__getAvailablePassiveQuests().length > 0) {
       return;
     }
+
+    /*************************************************************************
+     * CHECK REFRESHABLE QUESTS
+     *************************************************************************/
 
     /*
      * Make sure there are actually inactive quests that can be refreshed.
@@ -555,6 +585,12 @@ class AutomationFreeQuests {
      * FREE REFRESH
      *************************************************************************/
 
+    /*
+     * Always prefer the free refresh.
+     *
+     * We only reach this point when ALL currently active quests
+     * have finished.
+     */
     if (App.game.quests.freeRefresh()) {
       App.game.quests.refreshQuests();
 
@@ -575,8 +611,7 @@ class AutomationFreeQuests {
       "true";
 
     /*
-     * Safe default:
-     * never spend money.
+     * Paid refresh disabled.
      */
     if (!allowPaidRefresh) {
       return;
@@ -608,8 +643,14 @@ class AutomationFreeQuests {
 
     this.__internal__lastPaidRefresh = now;
 
+    /*
+     * Keep refresh cost for notification.
+     */
     const refreshCost = App.game.quests.getRefreshCost();
 
+    /*
+     * Paid refresh.
+     */
     App.game.quests.refreshQuests();
 
     Automation.Notifications.sendNotif(
