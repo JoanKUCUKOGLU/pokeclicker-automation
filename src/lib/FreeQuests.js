@@ -134,8 +134,7 @@ class AutomationFreeQuests {
 
   static __internal__buildMenu() {
     /*
-     * Create an isolated container so we can hide the whole feature until
-     * Daily Quests are unlocked.
+     * Main Free Quests container.
      */
     this.__internal__container = document.createElement("div");
 
@@ -145,6 +144,9 @@ class AutomationFreeQuests {
 
     Automation.Menu.addSeparator(this.__internal__container);
 
+    /*
+     * Main tooltip.
+     */
     const tooltip =
       "Automatically manages passive Daily Quests" +
       Automation.Menu.TooltipSeparator +
@@ -157,7 +159,7 @@ class AutomationFreeQuests {
       "Focus target, Gym, Dungeon or Battle activity.";
 
     /*
-     * Main ON/OFF button.
+     * Main ON / OFF button.
      */
     const button = Automation.Menu.addAutomationButton(
       "Free Quests",
@@ -167,27 +169,57 @@ class AutomationFreeQuests {
     );
 
     /*
-     * Menu.toggleButtonState() updates LocalStorage first.
-     *
-     * Our listener then reads the resulting state.
+     * Start / stop Free Quests when clicking the button.
      */
     button.addEventListener("click", this.toggle.bind(this), false);
+
+    /***************************************************************************
+     * ADVANCED SETTINGS PANEL
+     ***************************************************************************/
+
+    /*
+     * Create the same collapsible settings menu used by modules
+     * such as Hatchery.
+     */
+    const settingsPanel = Automation.Menu.addSettingPanel(
+      button.parentElement.parentElement,
+    );
+
+    /*
+     * Panel title.
+     */
+    const titleDiv = Automation.Menu.createTitleElement(
+      "Free Quests advanced settings",
+    );
+
+    titleDiv.style.marginBottom = "10px";
+
+    settingsPanel.appendChild(titleDiv);
 
     /*
      * Paid refresh option.
      *
-     * OFF by default.
+     * This is now hidden inside the expandable settings panel instead
+     * of permanently taking space in the main Automation menu.
      */
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
       "Allow paid quest refresh",
       this.Settings.AllowPaidRefresh,
-      "OFF: only use the free Daily Quest refresh.\n" +
-        "ON: Free Quests may spend Pokédollars refreshing quests.",
-      this.__internal__container,
+
+      "Allow Free Quests to spend Pokédollars refreshing Daily Quests" +
+        Automation.Menu.TooltipSeparator +
+        "OFF: only the free Daily Quest refresh will be used.\n" +
+        "ON: paid refreshes may also be used.",
+
+      settingsPanel,
     );
 
+    /***************************************************************************
+     * DAILY QUEST UNLOCK
+     ***************************************************************************/
+
     /*
-     * Hide until Daily Quests are unlocked.
+     * Hide the entire feature until Daily Quests are unlocked.
      */
     if (!App.game.quests.isDailyQuestsUnlocked()) {
       this.__internal__container.hidden = true;
