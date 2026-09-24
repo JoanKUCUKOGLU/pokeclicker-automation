@@ -5,6 +5,7 @@ class AutomationFocus {
   // Aliases on the other classes
   static Achievements = AutomationFocusAchievements;
   static Quests = AutomationFocusQuests;
+  static Shinies = AutomationFocusShinies;
   static Roamers = AutomationFocusRoamers;
   static PokerusCure = AutomationFocusPokerusCure;
   static ShadowPurification = AutomationFocusShadowPurification;
@@ -397,6 +398,18 @@ class AutomationFocus {
     );
 
     this.Roamers.__buildAdvancedSettings(roamersTabContainer);
+
+    /************************\
+    |*  Shinies settings  *|
+    \************************/
+
+    const shiniesTabContainer = Automation.Menu.addTabElement(
+      focusSettingPanel,
+      "Shinies",
+      focusSettingsTabsGroup,
+    );
+
+    this.Shinies.__buildAdvancedSettings(shiniesTabContainer);
   }
 
   /**
