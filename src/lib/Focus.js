@@ -400,7 +400,7 @@ class AutomationFocus {
     this.Roamers.__buildAdvancedSettings(roamersTabContainer);
 
     /************************\
-    |*  Shinies settings  *|
+    |*  Shinies settings   *|
     \************************/
 
     const shiniesTabContainer = Automation.Menu.addTabElement(
@@ -563,9 +563,8 @@ class AutomationFocus {
     this.PokerusCure.__registerFunctionalities(
       this.__internal__functionalities,
     );
-    this.Roamers.__registerFunctionalities(
-      this.__internal__functionalities,
-    );
+    this.Roamers.__registerFunctionalities(this.__internal__functionalities);
+    this.Shinies.__registerFunctionalities(this.__internal__functionalities);
     this.ShadowPurification.__registerFunctionalities(
       this.__internal__functionalities,
     );
