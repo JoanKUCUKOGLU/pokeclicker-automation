@@ -1,12 +1,15 @@
 /**
  * @class AutomationFocusRoamers
  *
- * Roamer Focus:
- * - Alternates rapidly between two unlocked routes.
- * - Every route change generates a fresh wild encounter.
+ * Roamer Focus
+ *
+ * Features:
+ * - Searches roaming Pokémon automatically.
  * - Uses the x3 boosted roaming route whenever possible.
- * - Keeps Auto Click enabled at all times.
- * - Stops bouncing immediately when a wanted Roamer appears.
+ * - Performs synchronous route bouncing to avoid wasting time fighting
+ *   normal Pokémon on the boosted route.
+ * - Auto Click stays enabled at all times.
+ * - Immediately stops bouncing when a wanted Roamer appears.
  * - Supports:
  *      - New roamers only
  *      - New + PKRS (Contagious -> Resistant)
@@ -29,11 +32,10 @@ class AutomationFocusRoamers {
       tooltip:
         "Hunts roaming Pokémon by rapidly alternating between two routes" +
         Automation.Menu.TooltipSeparator +
-        "A new wild encounter is generated on every route change.\n" +
-        "The route with the x3 roaming bonus is used whenever possible.\n" +
+        "Uses the x3 roaming route whenever possible.\n" +
+        "Normal encounters on the boosted route are skipped immediately.\n" +
         "Auto Click stays enabled at all times.\n" +
-        "The hunt pauses immediately when a wanted Roamer appears,\n" +
-        "then resumes after the battle until no target remains.",
+        "The hunt stops bouncing as soon as a wanted Roamer appears.",
 
       run: function () {
         this.__internal__start();
@@ -48,7 +50,7 @@ class AutomationFocusRoamers {
   }
 
   /**
-   * Builds the Roamer advanced settings.
+   * Builds Roamer advanced settings.
    *
    * @param {Element} parent
    */
@@ -86,7 +88,7 @@ class AutomationFocusRoamers {
     select.style.width = "100%";
 
     /*
-     * NEW ONLY
+     * NEW ROAMERS ONLY
      */
     const newOnlyOption = document.createElement("option");
 
@@ -108,7 +110,7 @@ class AutomationFocusRoamers {
     select.options.add(pokerusOption);
 
     /*
-     * Restore saved mode.
+     * Restore stored setting.
      */
     const storedMode = Automation.Utils.LocalStorage.getValue(
       this.__internal__advancedSettings.HuntMode,
@@ -121,7 +123,7 @@ class AutomationFocusRoamers {
       : this.__internal__huntModes.NewOnly;
 
     /*
-     * Save changes.
+     * Save mode.
      */
     select.onchange = function () {
       Automation.Utils.LocalStorage.setValue(
@@ -149,17 +151,25 @@ class AutomationFocusRoamers {
   };
 
   /*
-   * Our own refresh loop.
+   * Main automation loop.
    */
   static __internal__loop = null;
 
   /*
-   * Very fast bounce.
+   * Main loop frequency.
    *
-   * 5 ms means normal encounters are abandoned almost immediately
-   * instead of waiting for them to die.
+   * The actual route bouncing is synchronous, so this doesn't need to
+   * represent every individual encounter.
    */
   static __internal__loopIntervalMs = 5;
+
+  /*
+   * Number of complete boosted <-> secondary cycles performed
+   * synchronously during a single script tick.
+   *
+   * 10 cycles = up to 20 freshly generated encounters.
+   */
+  static __internal__burstSize = 10;
 
   /*
    * Route plan.
@@ -171,20 +181,18 @@ class AutomationFocusRoamers {
   static __internal__subRegionGroup = null;
 
   /*
-   * Encounter tracking.
+   * Locked Roamer.
    */
-  static __internal__lastEnemy = null;
-
   static __internal__lockedEnemy = null;
   static __internal__lockedTargetName = null;
 
   /*
-   * Capture filter.
+   * Poké Ball automation.
    */
   static __internal__captureFilterEnabled = false;
 
   /*
-   * If only one route is available, route bouncing isn't possible.
+   * True if only one usable route is available.
    */
   static __internal__singleRouteFallback = false;
 
@@ -201,7 +209,7 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * Don't start inside a Dungeon / Gym / etc.
+     * Don't start in Gym / Dungeon / Battle Frontier / etc.
      */
     if (!Automation.Focus.__ensureNoInstanceIsInProgress()) {
       return;
@@ -227,7 +235,7 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * Make sure the player has the selected Poké Ball.
+     * Check selected Poké Ball.
      */
     const selectedPokeball = this.__internal__getSelectedPokeball();
 
@@ -238,14 +246,14 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * Build our route plan.
+     * Build route plan.
      */
     if (!this.__internal__refreshRoutePlan(true)) {
       return;
     }
 
     /*
-     * Check whether there is anything to hunt.
+     * Is there anything to hunt?
      */
     const targets = this.__internal__getTargets();
 
@@ -256,51 +264,54 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * Disable the normal Auto Click setting button while Roamer Focus
-     * controls it.
+     * Roamer Focus controls Auto Click while enabled.
      */
-    const disableReason = "The 'Focus on Roamers' feature is enabled";
-
     Automation.Menu.setButtonDisabledState(
       Automation.Click.Settings.FeatureEnabled,
       true,
-      disableReason,
+      "The 'Focus on Roamers' feature is enabled",
     );
 
     /*
-     * IMPORTANT:
-     *
-     * Auto Click remains ON during the entire Roamer Focus.
+     * User requested Auto Click to remain ON at all times.
      */
     Automation.Click.toggleAutoClick(true);
 
     /*
-     * Disable the automation capture filter while SEARCHING.
+     * Disable automatic capture while searching.
      *
-     * We only enable it when a wanted Roamer has been found.
+     * It is re-enabled only when a wanted Roamer is found.
      */
     Automation.Utils.Pokeball.disableAutomationFilter();
 
     this.__internal__captureFilterEnabled = false;
 
     /*
-     * Reset encounter tracking.
+     * Reset lock.
      */
-    this.__internal__lastEnemy = null;
-
     this.__internal__lockedEnemy = null;
     this.__internal__lockedTargetName = null;
 
     /*
-     * Move to the best route.
+     * If we have two routes, park on secondary first.
+     *
+     * This means whenever JavaScript gives control back to the browser,
+     * we are preferably NOT sitting on a normal Pokémon from the x3 route.
      */
-    Automation.Utils.Route.moveToRoute(
-      this.__internal__primaryRoute.number,
-      this.__internal__region,
-    );
+    if (this.__internal__secondaryRoute !== null) {
+      Automation.Utils.Route.moveToRoute(
+        this.__internal__secondaryRoute.number,
+        this.__internal__region,
+      );
+    } else {
+      Automation.Utils.Route.moveToRoute(
+        this.__internal__primaryRoute.number,
+        this.__internal__region,
+      );
+    }
 
     /*
-     * Start our own fast loop.
+     * Start loop.
      */
     this.__internal__loop = setInterval(
       this.__internal__tick.bind(this),
@@ -308,7 +319,7 @@ class AutomationFocusRoamers {
     );
 
     /*
-     * Process immediately too.
+     * Run once immediately.
      */
     this.__internal__tick();
   }
@@ -325,17 +336,17 @@ class AutomationFocusRoamers {
     this.__internal__loop = null;
 
     /*
-     * Disable our temporary Roamer capture filter.
+     * Remove temporary Roamer capture filter.
      */
     this.__internal__disableCaptureFilter();
 
     /*
-     * User requested Auto Click to stay ON by default.
+     * Keep Auto Click ON.
      */
     Automation.Click.toggleAutoClick(true);
 
     /*
-     * Re-enable Auto Click's normal menu button.
+     * Re-enable normal Auto Click menu setting.
      */
     Automation.Menu.setButtonDisabledState(
       Automation.Click.Settings.FeatureEnabled,
@@ -343,7 +354,7 @@ class AutomationFocusRoamers {
     );
 
     /*
-     * Reset everything.
+     * Reset route plan.
      */
     this.__internal__primaryRoute = null;
     this.__internal__secondaryRoute = null;
@@ -351,8 +362,9 @@ class AutomationFocusRoamers {
     this.__internal__region = null;
     this.__internal__subRegionGroup = null;
 
-    this.__internal__lastEnemy = null;
-
+    /*
+     * Reset target.
+     */
     this.__internal__lockedEnemy = null;
     this.__internal__lockedTargetName = null;
 
@@ -365,12 +377,12 @@ class AutomationFocusRoamers {
 
   static __internal__tick() {
     /*
-     * Auto Click must ALWAYS remain enabled while this Focus is active.
+     * Auto Click must ALWAYS stay enabled while Roamer Focus is active.
      */
     Automation.Click.toggleAutoClick(true);
 
     /*
-     * Don't interfere with an instance.
+     * Don't interfere with instances.
      */
     if (Automation.Utils.isInInstanceState()) {
       Automation.Focus.__ensureNoInstanceIsInProgress();
@@ -379,26 +391,19 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * Never switch route during a capture animation.
+     * Never switch routes during capture animation.
      */
     if (Battle.catching()) {
       return;
     }
 
     /*
-     * Recalculate routes.
-     *
-     * Handles:
-     * - region/subregion changes
-     * - boosted route changes
+     * Refresh roaming group / boosted route.
      */
     if (!this.__internal__refreshRoutePlan(false)) {
       return;
     }
 
-    /*
-     * Refresh target list.
-     */
     let targets = this.__internal__getTargets();
 
     /*
@@ -410,43 +415,26 @@ class AutomationFocusRoamers {
       return;
     }
 
-    /*
-     * Current encounter.
-     */
     const enemy = Battle.enemyPokemon();
 
-    /*
-     * No enemy for some reason.
-     */
-    if (!enemy) {
-      Automation.Utils.Route.moveToRoute(
-        this.__internal__primaryRoute.number,
-        this.__internal__region,
-      );
-
-      return;
-    }
-
-    /*******************\
-      |* TARGET LOCKED *|
-      \*******************/
+    /**************************************************************************
+     * LOCKED ROAMER
+     **************************************************************************/
 
     if (this.__internal__lockedEnemy !== null) {
       /*
-       * Same Roamer is still alive / being captured.
+       * Same Roamer is still on screen.
        *
-       * Stay on it.
+       * Stay here and let Auto Click attack it.
        */
       if (enemy === this.__internal__lockedEnemy) {
-        Automation.Click.toggleAutoClick(true);
-
         return;
       }
 
       /*
        * Enemy changed.
        *
-       * Roamer encounter has ended.
+       * The Roamer encounter finished.
        */
       this.__internal__lockedEnemy = null;
       this.__internal__lockedTargetName = null;
@@ -454,7 +442,7 @@ class AutomationFocusRoamers {
       this.__internal__disableCaptureFilter();
 
       /*
-       * Auto Click remains enabled.
+       * Auto Click remains ON.
        */
       Automation.Click.toggleAutoClick(true);
 
@@ -468,131 +456,192 @@ class AutomationFocusRoamers {
 
         return;
       }
-
-      /*
-       * New enemy must be treated as fresh.
-       */
-      this.__internal__lastEnemy = null;
     }
 
-    /*
-     * Same exact BattlePokemon already handled.
-     */
-    if (enemy === this.__internal__lastEnemy) {
+    /**************************************************************************
+     * ONLY ONE ROUTE AVAILABLE
+     **************************************************************************/
+
+    if (this.__internal__secondaryRoute === null) {
+      this.__internal__singleRouteFallback = true;
+
+      /*
+       * Can't bounce.
+       *
+       * Check if current encounter is wanted.
+       */
+      if (enemy) {
+        const targetNames = new Set(targets.map((data) => data.pokemon.name));
+
+        if (targetNames.has(enemy.name)) {
+          this.__internal__lockTarget(enemy);
+        }
+      }
+
+      /*
+       * Otherwise Auto Click kills normally and another encounter
+       * eventually appears.
+       */
       return;
     }
 
-    this.__internal__lastEnemy = enemy;
+    /**************************************************************************
+     * SEARCH MODE
+     **************************************************************************/
 
     /*
-     * Build list of wanted names.
+     * Don't waste Poké Balls on normal Pokémon.
+     */
+    this.__internal__disableCaptureFilter();
+
+    /*
+     * Perform a synchronous route-bounce burst.
+     */
+    this.__internal__performBounceBurst(targets);
+  }
+
+  /******************************\
+    |* SYNCHRONOUS BOUNCE BURST *|
+    \******************************/
+
+  static __internal__performBounceBurst(targets) {
+    /*
+     * Wanted Pokémon names.
      */
     const targetNames = new Set(targets.map((data) => data.pokemon.name));
 
     /*
-     * Wanted Roamer detected.
+     * Check current enemy before moving.
      */
-    if (targetNames.has(enemy.name)) {
+    let enemy = Battle.enemyPokemon();
+
+    if (enemy && targetNames.has(enemy.name)) {
       this.__internal__lockTarget(enemy);
 
       return;
     }
 
-    /**********************\
-      |* NORMAL ENCOUNTER *|
-      \**********************/
-
     /*
-     * Never waste Poké Balls on normal encounters.
-     */
-    this.__internal__disableCaptureFilter();
-
-    /*
-     * Auto Click remains ON.
-     */
-    Automation.Click.toggleAutoClick(true);
-
-    /*
-     * If only one route is available, we cannot bounce.
+     * Start from secondary route.
      *
-     * In that case we simply kill normally until another enemy appears.
+     * The goal is:
+     *
+     * secondary
+     *   ↓
+     * boosted
+     *   ↓
+     * immediate check
+     *   ↓
+     * normal Pokémon?
+     *   ↓
+     * immediately secondary again
+     *
+     * We never yield browser execution while standing on a normal
+     * encounter from the boosted route.
      */
-    if (this.__internal__secondaryRoute === null) {
-      this.__internal__singleRouteFallback = true;
+    if (player.route !== this.__internal__secondaryRoute.number) {
+      Automation.Utils.Route.moveToRoute(
+        this.__internal__secondaryRoute.number,
+        this.__internal__region,
+      );
 
-      return;
+      enemy = Battle.enemyPokemon();
+
+      /*
+       * Roamers can spawn on secondary too.
+       */
+      if (enemy && targetNames.has(enemy.name)) {
+        this.__internal__lockTarget(enemy);
+
+        return;
+      }
+    }
+
+    /**************************************************************************
+     * BURST
+     **************************************************************************/
+
+    for (let i = 0; i < this.__internal__burstSize; i++) {
+      /*
+       * Safety.
+       */
+      if (Battle.catching() || this.__internal__lockedEnemy !== null) {
+        return;
+      }
+
+      /**********************************************************************
+       * BOOSTED / PRIMARY ROUTE
+       **********************************************************************/
+
+      Automation.Utils.Route.moveToRoute(
+        this.__internal__primaryRoute.number,
+        this.__internal__region,
+      );
+
+      /*
+       * Route movement generates the new encounter immediately.
+       */
+      enemy = Battle.enemyPokemon();
+
+      /*
+       * TARGET FOUND ON BOOSTED ROUTE.
+       *
+       * Stay here.
+       * Stop bouncing.
+       * Let Auto Click fight it.
+       */
+      if (enemy && targetNames.has(enemy.name)) {
+        this.__internal__lockTarget(enemy);
+
+        return;
+      }
+
+      /*
+       * Normal Pokémon.
+       *
+       * DO NOT return.
+       * DO NOT wait.
+       * DO NOT setTimeout.
+       *
+       * Immediately switch back to secondary in this exact JavaScript
+       * execution.
+       */
+
+      /**********************************************************************
+       * SECONDARY ROUTE
+       **********************************************************************/
+
+      Automation.Utils.Route.moveToRoute(
+        this.__internal__secondaryRoute.number,
+        this.__internal__region,
+      );
+
+      enemy = Battle.enemyPokemon();
+
+      /*
+       * TARGET FOUND ON SECONDARY ROUTE.
+       */
+      if (enemy && targetNames.has(enemy.name)) {
+        this.__internal__lockTarget(enemy);
+
+        return;
+      }
+
+      /*
+       * Otherwise immediately start another
+       * secondary -> boosted -> secondary cycle.
+       */
     }
 
     /*
-     * TRUE 1-1 MODE
+     * IMPORTANT:
      *
-     * One encounter on the current route,
-     * then immediately switch route.
-     */
-    const nextRoute =
-      player.route === this.__internal__primaryRoute.number
-        ? this.__internal__secondaryRoute
-        : this.__internal__primaryRoute;
-
-    /*
-     * Moving route causes PokéClicker to generate another encounter.
-     */
-    Automation.Utils.Route.moveToRoute(
-      nextRoute.number,
-      this.__internal__region,
-    );
-
-    /*
-     * Immediately inspect the encounter that was just generated.
-     */
-    this.__internal__lockGeneratedTargetImmediately();
-  }
-
-  /****************************************\
-    |* IMMEDIATE CHECK AFTER ROUTE SWITCH *|
-    \****************************************/
-
-  static __internal__lockGeneratedTargetImmediately() {
-    /*
-     * Don't interfere with capture / already locked target.
-     */
-    if (Battle.catching() || this.__internal__lockedEnemy !== null) {
-      return;
-    }
-
-    const enemy = Battle.enemyPokemon();
-
-    /*
-     * Nothing new.
-     */
-    if (!enemy || enemy === this.__internal__lastEnemy) {
-      return;
-    }
-
-    /*
-     * Check whether this encounter is wanted.
-     */
-    const targetNames = new Set(
-      this.__internal__getTargets().map((data) => data.pokemon.name),
-    );
-
-    /*
-     * NORMAL POKÉMON.
+     * The burst always ends on secondary.
      *
-     * Do NOT lock it.
-     *
-     * The next tick (~5 ms) will switch route again.
+     * So when execution returns to PokéClicker, Auto Click can at worst
+     * attack the secondary-route Pokémon, not a normal encounter on the
+     * boosted x3 route.
      */
-    if (!targetNames.has(enemy.name)) {
-      return;
-    }
-
-    /*
-     * Wanted Roamer.
-     */
-    this.__internal__lastEnemy = enemy;
-
-    this.__internal__lockTarget(enemy);
   }
 
   /************************\
@@ -603,7 +652,7 @@ class AutomationFocusRoamers {
     const selectedPokeball = this.__internal__getSelectedPokeball();
 
     /*
-     * Ensure the selected ball is still available.
+     * Ensure we still have the selected ball.
      */
     if (!Automation.Focus.__ensurePlayerHasEnoughBalls(selectedPokeball)) {
       this.__internal__disableFocus();
@@ -612,21 +661,22 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * Lock this exact BattlePokemon.
+     * Lock exact BattlePokemon.
      */
     this.__internal__lockedEnemy = enemy;
 
     this.__internal__lockedTargetName = enemy.name;
 
     /*
-     * Catch only while a wanted Roamer is being fought.
+     * Catch the wanted Roamer.
      */
     Automation.Utils.Pokeball.catchEverythingWith(selectedPokeball);
 
     this.__internal__captureFilterEnabled = true;
 
     /*
-     * Auto Click stays ON.
+     * Auto Click remains ON and now may freely attack because this is
+     * a wanted Roamer.
      */
     Automation.Click.toggleAutoClick(true);
   }
@@ -707,7 +757,8 @@ class AutomationFocusRoamers {
         const pokemonName = data.pokemon.name;
 
         /*
-         * Never caught = always target.
+         * Never caught:
+         * target it.
          */
         if (!App.game.party.alreadyCaughtPokemonByName(pokemonName)) {
           return true;
@@ -719,12 +770,11 @@ class AutomationFocusRoamers {
         const partyPokemon = App.game.party.getPokemonByName(pokemonName);
 
         /*
-         * Only Contagious Pokémon need repeated captures.
+         * Only Contagious Pokémon are repeatedly hunted.
          *
-         * Resistant = finished.
+         * Resistant = complete.
          *
-         * None/Infected are ignored because capturing another copy
-         * cannot advance useful EVs yet.
+         * None/Infected = ignored until they become Contagious.
          */
         return partyPokemon?.pokerus === GameConstants.Pokerus.Contagious;
       });
@@ -750,12 +800,12 @@ class AutomationFocusRoamers {
     const region = player.region;
 
     /*
-     * Roaming sub-region group.
+     * Roaming group.
      */
     const group = RoamingPokemonList.findGroup(region, player.subregion);
 
     /*
-     * Roamers existing in this group.
+     * Available roamers.
      */
     const roamers = RoamingPokemonList.getSubRegionalGroupRoamers(
       region,
@@ -777,7 +827,7 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * Current x3 boosted roaming route.
+     * Current boosted x3 route.
      */
     const boostedRouteObservable =
       RoamingPokemonList.getIncreasedChanceRouteBySubRegionGroup(region, group);
@@ -787,7 +837,7 @@ class AutomationFocusRoamers {
       : null;
 
     /*
-     * Subregions included in this Roamer group.
+     * Subregions belonging to this roaming group.
      */
     const groupSubRegions = RoamingPokemonList.getGroupSubRegions(
       region,
@@ -795,21 +845,21 @@ class AutomationFocusRoamers {
     );
 
     /*
-     * Every route inside the same roaming group.
+     * Routes belonging to roaming group.
      */
     const allGroupRoutes = Routes.getRoutesByRegion(region).filter((route) =>
       groupSubRegions.includes(route.subRegion || 0),
     );
 
     /*
-     * Only currently accessible routes.
+     * Keep accessible routes only.
      */
     const unlockedRoutes = allGroupRoutes.filter((route) =>
       Automation.Utils.Route.canMoveToRoute(route.number, region, route),
     );
 
     /*
-     * No usable route.
+     * Nothing usable.
      */
     if (unlockedRoutes.length === 0) {
       Automation.Notifications.sendWarningNotif(
@@ -823,31 +873,24 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * Best normal route.
-     *
-     * Later routes normally have better Roamer odds.
+     * Best normal unlocked route.
      */
     const bestUnlockedRoute = unlockedRoutes[unlockedRoutes.length - 1];
 
     /*
-     * Is the x3 route unlocked?
+     * Is x3 route unlocked?
      */
     const boostedUnlocked = boostedRoute
       ? unlockedRoutes.find((route) => route.number === boostedRoute.number)
       : null;
 
     /*
-     * Primary route:
-     *
-     * boosted x3 route if possible,
-     * otherwise best unlocked route.
+     * Primary = boosted x3 route if available.
      */
     const newPrimary = boostedUnlocked ?? bestUnlockedRoute;
 
     /*
-     * Secondary route:
-     *
-     * best other unlocked route in the SAME roaming group.
+     * Secondary = best different route.
      */
     const secondaryCandidates = unlockedRoutes.filter(
       (route) => route.number !== newPrimary.number,
@@ -859,7 +902,7 @@ class AutomationFocusRoamers {
         : null;
 
     /*
-     * Has our plan changed?
+     * Did route plan change?
      */
     const routePlanChanged =
       force ||
@@ -868,15 +911,12 @@ class AutomationFocusRoamers {
       this.__internal__primaryRoute?.number !== newPrimary.number ||
       this.__internal__secondaryRoute?.number !== newSecondary?.number;
 
-    /*
-     * Nothing changed.
-     */
     if (!routePlanChanged) {
       return true;
     }
 
     /*
-     * Remember old region/group.
+     * Save old group information.
      */
     const previousRegion = this.__internal__region;
 
@@ -893,19 +933,11 @@ class AutomationFocusRoamers {
 
     this.__internal__secondaryRoute = newSecondary;
 
-    /*
-     * Only one usable route?
-     */
     this.__internal__singleRouteFallback = newSecondary === null;
 
     /*
-     * Encounter tracking must restart.
-     */
-    this.__internal__lastEnemy = null;
-
-    /*
-     * If player moved into another roaming group,
-     * clear any old target lock.
+     * If player manually changed roaming group,
+     * discard old target lock.
      */
     if (
       previousRegion !== null &&
@@ -919,14 +951,16 @@ class AutomationFocusRoamers {
     }
 
     /*
-     * While searching, always migrate to the best route.
+     * IMPORTANT:
+     *
+     * DO NOT automatically move to primary here.
+     *
+     * The synchronous bounce function is the ONLY code allowed
+     * to move between primary and secondary while searching.
+     *
+     * Otherwise we could yield execution while sitting on a
+     * normal Pokémon from the boosted route.
      */
-    if (
-      this.__internal__lockedEnemy === null &&
-      player.route !== newPrimary.number
-    ) {
-      Automation.Utils.Route.moveToRoute(newPrimary.number, region);
-    }
 
     return true;
   }
@@ -951,14 +985,15 @@ class AutomationFocusRoamers {
 
     let message;
 
-    /*
-     * PKRS mode.
-     */
+    /****************\
+      |* PKRS MODE *|
+      \****************/
+
     if (mode === this.__internal__huntModes.Pokerus) {
       const roamers = this.__internal__getRoamers();
 
       /*
-       * Check if every Roamer is actually Resistant.
+       * Check whether every Roamer is actually Resistant.
        */
       const allResistant = roamers.every((data) => {
         const pokemon = App.game.party.getPokemonByName(data.pokemon.name);
@@ -977,25 +1012,25 @@ class AutomationFocusRoamers {
       }
     } else {
 
-    /*
-     * New-only mode.
-     */
+    /********************\
+      |* NEW ONLY MODE *|
+      \********************/
       message =
         "All roamers in this roaming group have been caught.\nTurning the feature off";
     }
 
     /*
-     * Turn off Roamer Focus.
+     * Disable Roamer Focus.
      */
     this.__internal__disableFocus();
 
     /*
-     * Auto Click remains ON.
+     * User wants Auto Click to remain ON.
      */
     Automation.Click.toggleAutoClick(true);
 
     /*
-     * Notification.
+     * Notify.
      */
     Automation.Notifications.sendWarningNotif(message, "Focus - Roamers");
   }
