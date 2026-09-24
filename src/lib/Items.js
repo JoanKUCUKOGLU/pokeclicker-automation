@@ -213,7 +213,7 @@ class AutomationItems {
       "The Maximum Flow notification is closed automatically after purification.";
 
     const purifyButton = Automation.Menu.addAutomationButton(
-      "Purify Chamber",
+      "Purify",
       this.Settings.AutoPurify,
       purifyTooltip,
       this.__internal__purifyContainer,
