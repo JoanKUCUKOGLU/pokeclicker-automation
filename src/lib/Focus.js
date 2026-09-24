@@ -5,6 +5,7 @@ class AutomationFocus {
   // Aliases on the other classes
   static Achievements = AutomationFocusAchievements;
   static Quests = AutomationFocusQuests;
+  static Roamers = AutomationFocusRoamers;
   static PokerusCure = AutomationFocusPokerusCure;
   static ShadowPurification = AutomationFocusShadowPurification;
 
@@ -384,6 +385,18 @@ class AutomationFocus {
       focusSettingsTabsGroup,
     );
     this.PokerusCure.__buildAdvancedSettings(pokerusCureTabContainer);
+
+    /************************\
+    |*  Roamers settings  *|
+    \************************/
+
+    const roamersTabContainer = Automation.Menu.addTabElement(
+      focusSettingPanel,
+      "Roamers",
+      focusSettingsTabsGroup,
+    );
+
+    this.Roamers.__buildAdvancedSettings(roamersTabContainer);
   }
 
   /**
@@ -535,6 +548,9 @@ class AutomationFocus {
       this.__internal__functionalities,
     );
     this.PokerusCure.__registerFunctionalities(
+      this.__internal__functionalities,
+    );
+    this.Roamers.__registerFunctionalities(
       this.__internal__functionalities,
     );
     this.ShadowPurification.__registerFunctionalities(
