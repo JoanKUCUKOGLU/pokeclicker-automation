@@ -8,12 +8,6 @@
  *
  * @note These functionalities are not accessible right away when starting
  * a new game.
- *
- * This menu will be hidden until at least one of the functionalities
- * is unlocked in-game.
- *
- * Each button will be hidden until the corresponding functionality
- * is unlocked in-game.
  */
 class AutomationItems {
   static Settings = {
@@ -21,20 +15,21 @@ class AutomationItems {
     UpgradeGems: "Items-UpgradeGems",
 
     /*
-     * Automatically uses the Purify Chamber when enough Flow is available.
+     * Automatically uses the Purify Chamber
+     * when enough Flow is available.
      */
     AutoPurify: "Items-AutoPurify",
   };
 
   /**
-   * @brief Builds the menu, and restores previous running state if needed
+   * Builds the menu and restores previous running states.
    *
    * @param initStep The current automation init step
    */
   static initialize(initStep) {
     if (initStep == Automation.InitSteps.BuildMenu) {
       /*
-       * Disable Oak Items auto-upgrades by default.
+       * Oak Items disabled by default.
        */
       Automation.Utils.LocalStorage.setDefaultValue(
         this.Settings.UpgradeOakItems,
@@ -42,7 +37,7 @@ class AutomationItems {
       );
 
       /*
-       * Disable automatic purification by default.
+       * Auto Purify disabled by default.
        */
       Automation.Utils.LocalStorage.setDefaultValue(
         this.Settings.AutoPurify,
@@ -52,7 +47,7 @@ class AutomationItems {
       this.__internal__buildMenu();
     } else if (initStep == Automation.InitSteps.Finalize) {
       /*
-       * Restore previous session states.
+       * Restore saved states.
        */
       this.__internal__toggleAutoOakUpgrade();
 
@@ -89,9 +84,10 @@ class AutomationItems {
 
   static __internal__autoPurifyLoop = null;
 
-  /**
-   * @brief Builds the menu
-   */
+  /***************************************************************************
+   * MENU
+   ***************************************************************************/
+
   static __internal__buildMenu() {
     /*************************************************************************
      * MAIN CONTAINER
@@ -123,12 +119,14 @@ class AutomationItems {
       this.__internal__oakUpgradeContainer,
     );
 
-    /*
-     * Only display Oak Items when they are unlocked and at least
-     * one Oak Item still needs an upgrade.
-     */
     const hasAccessToOakItems = App.game.oakItems.canAccess();
 
+    /*
+     * Hide Oak Items if:
+     *
+     * - not unlocked
+     * - or everything is already max level
+     */
     this.__internal__oakUpgradeContainer.hidden =
       !hasAccessToOakItems ||
       App.game.oakItems.itemList.every((item) => item.isMaxLevel());
@@ -164,10 +162,6 @@ class AutomationItems {
       this.__internal__gemUpgradeContainer,
     );
 
-    /*
-     * Only display Gems when unlocked and at least one Gem upgrade
-     * is still available.
-     */
     const hasAccessToGems = App.game.gems.canAccess();
 
     this.__internal__gemUpgradeContainer.hidden =
@@ -203,7 +197,8 @@ class AutomationItems {
     );
 
     /*
-     * Use the same unlock condition as Focus -> Shadow purify.
+     * Same Shadow mechanic availability check
+     * used by the Shadow-related systems.
      */
     const hasAccessToPurify = this.__internal__canUsePurifyChamber();
 
@@ -214,11 +209,11 @@ class AutomationItems {
     const purifyTooltip =
       "Automatically uses the Purify Chamber when enough Flow is available" +
       Automation.Menu.TooltipSeparator +
-      "Uses the currently selected Shadow Pokémon in the Purify Chamber.\n" +
-      "The option stays enabled while Flow recharges.";
+      "Purifies the selected Shadow Pokémon automatically.\n" +
+      "The Maximum Flow notification is closed automatically after purification.";
 
     const purifyButton = Automation.Menu.addAutomationButton(
-      "Purify",
+      "Purify Chamber",
       this.Settings.AutoPurify,
       purifyTooltip,
       this.__internal__purifyContainer,
@@ -231,7 +226,7 @@ class AutomationItems {
     );
 
     /*************************************************************************
-     * MAIN MENU VISIBILITY
+     * CONTAINER VISIBILITY
      *************************************************************************/
 
     this.__internal__updateUpgradeContainerVisibility();
@@ -240,17 +235,15 @@ class AutomationItems {
      * UNLOCK WATCHER
      *************************************************************************/
 
-    /*
-     * Some mechanics may not yet be available when the automation starts.
-     */
     if (!hasAccessToOakItems || !hasAccessToGems || !hasAccessToPurify) {
       this.__internal__setItemUpgradeUnlockWatcher();
     }
   }
 
-  /**
-   * @brief Updates the visibility of the whole Auto Upgrade section.
-   */
+  /***************************************************************************
+   * MAIN CONTAINER VISIBILITY
+   ***************************************************************************/
+
   static __internal__updateUpgradeContainerVisibility() {
     this.__internal__upgradeContainer.hidden =
       this.__internal__oakUpgradeContainer.hidden &&
@@ -258,13 +251,16 @@ class AutomationItems {
       this.__internal__purifyContainer.hidden;
   }
 
-  /**
-   * @brief Returns whether the Shadow/Purify mechanic is currently available.
-   *
-   * This uses the same unlock condition as Focus -> Shadow purify.
-   */
+  /***************************************************************************
+   * PURIFY CHAMBER ACCESS
+   ***************************************************************************/
+
   static __internal__canUsePurifyChamber() {
     try {
+      /*
+       * Shadow Pokémon filter availability is a reliable indicator
+       * that the Shadow/Purify mechanic has been unlocked.
+       */
       return (
         typeof pokeballFilterOptions !== "undefined" &&
         pokeballFilterOptions.shadow &&
@@ -275,11 +271,10 @@ class AutomationItems {
     }
   }
 
-  /**
-   * @brief Watches for in-game functionalities to be unlocked.
-   *
-   * Once unlocked, the corresponding menu/button will be displayed.
-   */
+  /***************************************************************************
+   * UNLOCK WATCHER
+   ***************************************************************************/
+
   static __internal__setItemUpgradeUnlockWatcher() {
     const watcher = setInterval(
       function () {
@@ -328,8 +323,7 @@ class AutomationItems {
           this.__internal__purifyContainer.hidden = false;
 
           /*
-           * Restore saved state if Auto Purify had already been enabled
-           * in a previous session.
+           * Restore previously saved state.
            */
           this.__internal__toggleAutoPurify();
         }
@@ -341,7 +335,8 @@ class AutomationItems {
         this.__internal__updateUpgradeContainerVisibility();
 
         /*
-         * Once everything is unlocked, the watcher is no longer useful.
+         * Once every system is unlocked,
+         * stop watching.
          */
         if (
           !this.__internal__oakUpgradeContainer.hiddenForAccessReason &&
@@ -357,18 +352,10 @@ class AutomationItems {
   }
 
   /***************************************************************************
-   * OAK ITEM AUTO UPGRADE
+   * OAK ITEMS TOGGLE
    ***************************************************************************/
 
-  /**
-   * @brief Toggles the 'Oak Item Upgrade' feature
-   *
-   * @param enable [Optional] Force state.
-   */
   static __internal__toggleAutoOakUpgrade(enable) {
-    /*
-     * If we got the click event, use the button status.
-     */
     if (enable !== true && enable !== false) {
       enable =
         Automation.Utils.LocalStorage.getValue(
@@ -377,13 +364,9 @@ class AutomationItems {
     }
 
     if (enable && !this.__internal__oakUpgradeContainer.hidden) {
-      /*
-       * Only create a loop if none exists.
-       */
       if (this.__internal__autoOakUpgradeLoop === null) {
         this.__internal__autoOakUpgradeLoop = setInterval(
           this.__internal__oakItemUpgradeLoop.bind(this),
-
           10000,
         );
 
@@ -393,9 +376,6 @@ class AutomationItems {
         this.__internal__oakItemUpgradeLoop();
       }
     } else {
-      /*
-       * Stop loop.
-       */
       clearInterval(this.__internal__autoOakUpgradeLoop);
 
       this.__internal__autoOakUpgradeLoop = null;
@@ -403,22 +383,14 @@ class AutomationItems {
   }
 
   /***************************************************************************
-   * GEM AUTO UPGRADE
+   * GEMS TOGGLE
    ***************************************************************************/
 
-  /**
-   * @brief Toggles the 'Gem Upgrade' feature
-   *
-   * @param enable [Optional] Force state.
-   */
   static __internal__toggleAutoGemUpgrade(enable) {
     if (!App.game.gems.canAccess()) {
       return;
     }
 
-    /*
-     * If we got the click event, use the button status.
-     */
     if (enable !== true && enable !== false) {
       enable =
         Automation.Utils.LocalStorage.getValue(this.Settings.UpgradeGems) ===
@@ -426,13 +398,9 @@ class AutomationItems {
     }
 
     if (enable && !this.__internal__gemUpgradeContainer.hidden) {
-      /*
-       * Only create a loop if none exists.
-       */
       if (this.__internal__autoGemUpgradeLoop === null) {
         this.__internal__autoGemUpgradeLoop = setInterval(
           this.__internal__gemUpgradeLoop.bind(this),
-
           10000,
         );
 
@@ -442,9 +410,6 @@ class AutomationItems {
         this.__internal__gemUpgradeLoop();
       }
     } else {
-      /*
-       * Stop loop.
-       */
       clearInterval(this.__internal__autoGemUpgradeLoop);
 
       this.__internal__autoGemUpgradeLoop = null;
@@ -452,30 +417,17 @@ class AutomationItems {
   }
 
   /***************************************************************************
-   * PURIFY CHAMBER AUTO USE
+   * PURIFY CHAMBER TOGGLE
    ***************************************************************************/
 
-  /**
-   * @brief Toggles automatic Purify Chamber usage.
-   *
-   * The automation DOES NOT move the player.
-   * It DOES NOT activate the Shadow Purification Focus.
-   *
-   * It only calls the game's normal purify() method periodically.
-   *
-   * @param enable [Optional] Force state.
-   */
   static __internal__toggleAutoPurify(enable) {
     /*
-     * Mechanic isn't unlocked yet.
+     * Not unlocked yet.
      */
     if (!this.__internal__canUsePurifyChamber()) {
       return;
     }
 
-    /*
-     * If we got the click event, use the stored button state.
-     */
     if (enable !== true && enable !== false) {
       enable =
         Automation.Utils.LocalStorage.getValue(this.Settings.AutoPurify) ===
@@ -484,78 +436,175 @@ class AutomationItems {
 
     if (enable && !this.__internal__purifyContainer.hidden) {
       /*
-       * Only create one loop.
+       * Avoid duplicate loops.
        */
       if (this.__internal__autoPurifyLoop === null) {
         /*
          * Check every second.
-         *
-         * This is intentionally faster than Oak/Gem upgrade because
-         * Purify Chamber Flow can reach its maximum while playing.
          */
         this.__internal__autoPurifyLoop = setInterval(
           this.__internal__purifyLoop.bind(this),
-
           1000,
         );
 
         /*
-         * Check immediately.
+         * Run immediately.
          */
         this.__internal__purifyLoop();
       }
     } else {
-      /*
-       * Stop loop.
-       */
       clearInterval(this.__internal__autoPurifyLoop);
 
       this.__internal__autoPurifyLoop = null;
     }
   }
 
-  /**
-   * @brief Attempts to purify the currently selected Shadow Pokémon.
-   *
-   * This deliberately uses the exact same core action as
-   * Focus -> Shadow purify:
-   *
-   *     App.game.purifyChamber.purify();
-   *
-   * PokéClicker itself checks canPurify() before performing the action.
-   */
+  /***************************************************************************
+   * PURIFY CHAMBER LOOP
+   ***************************************************************************/
+
   static __internal__purifyLoop() {
     /*
-     * Safety if the mechanic somehow becomes unavailable.
+     * Safety.
      */
     if (!this.__internal__canUsePurifyChamber()) {
       return;
     }
 
+    const chamber = App.game.purifyChamber;
+
     /*
-     * No extra checks are required here.
+     * Nothing selected / not enough Flow / invalid Pokémon.
      *
-     * The game's purify() method handles:
-     * - selected Pokémon
-     * - Shadow status
-     * - required Flow
+     * Prefer the game's own canPurify() logic whenever available.
      */
-    App.game.purifyChamber.purify();
+    if (typeof chamber.canPurify === "function" && !chamber.canPurify()) {
+      return;
+    }
+
+    /*
+     * Save Flow before attempting purification.
+     *
+     * Successful purification should reduce/reset it.
+     */
+    const flowBefore = chamber.currentFlow();
+
+    /*
+     * Same core action used by the game's normal
+     * Purify Chamber and Shadow Purification Focus.
+     */
+    chamber.purify();
+
+    /*
+     * Check whether purification actually happened.
+     */
+    const flowAfter = chamber.currentFlow();
+
+    if (flowAfter < flowBefore) {
+      /*
+       * Purification succeeded:
+       * the Maximum Flow notification is now obsolete.
+       */
+      this.__internal__dismissPurifyNotification();
+    }
   }
 
   /***************************************************************************
-   * OAK ITEM UPGRADE LOOP
+   * PURIFY NOTIFICATION
    ***************************************************************************/
 
   /**
-   * @brief The Oak item upgrade loop
+   * Automatically closes the Purify Chamber Maximum Flow notification.
    *
-   * Any Oak item will be upgraded if:
-   * - It's unlocked
-   * - It's not max-leveled
-   * - It has enough experience
-   * - The player has enough currency
+   * Only the matching Purify Chamber toast is affected.
+   * Other notifications remain untouched.
    */
+  static __internal__dismissPurifyNotification() {
+    /*
+     * The notification may already exist, but doing a couple
+     * of delayed attempts also covers Bootstrap/DOM timing.
+     */
+    this.__internal__dismissPurifyNotificationNow();
+
+    setTimeout(this.__internal__dismissPurifyNotificationNow.bind(this), 100);
+
+    setTimeout(this.__internal__dismissPurifyNotificationNow.bind(this), 300);
+  }
+
+  /**
+   * Finds and closes currently visible Purify Chamber toasts.
+   */
+  static __internal__dismissPurifyNotificationNow() {
+    const titleText = "Purify Chamber";
+
+    const messageText = "Maximum Flow has accumulated at the Purify Chamber";
+
+    /*
+     * PokéClicker notifications are displayed as Bootstrap toasts.
+     */
+    const toasts = document.querySelectorAll(".toast");
+
+    toasts.forEach((toast) => {
+      const text = toast.textContent || "";
+
+      /*
+       * Only touch this exact type of notification.
+       */
+      if (!text.includes(titleText) || !text.includes(messageText)) {
+        return;
+      }
+
+      /*********************************************************************
+       * METHOD 1
+       *
+       * Click the normal close button.
+       *************************************************************************/
+
+      const closeButton = toast.querySelector(
+        [
+          '[data-dismiss="toast"]',
+          '[data-bs-dismiss="toast"]',
+          ".close",
+          ".btn-close",
+        ].join(","),
+      );
+
+      if (closeButton) {
+        closeButton.click();
+        return;
+      }
+
+      /*********************************************************************
+       * METHOD 2
+       *
+       * Bootstrap / jQuery fallback.
+       *************************************************************************/
+
+      try {
+        if (typeof $ !== "undefined" && typeof $(toast).toast === "function") {
+          $(toast).toast("hide");
+          return;
+        }
+      } catch (error) {
+        /*
+         * Continue to final fallback.
+         */
+      }
+
+      /*********************************************************************
+       * METHOD 3
+       *
+       * Last-resort DOM removal.
+       *************************************************************************/
+
+      toast.remove();
+    });
+  }
+
+  /***************************************************************************
+   * OAK ITEM LOOP
+   ***************************************************************************/
+
   static __internal__oakItemUpgradeLoop() {
     if (!App.game.oakItems.canAccess()) {
       return;
@@ -565,16 +614,17 @@ class AutomationItems {
 
     for (const item of App.game.oakItems.itemList) {
       /*
-       * Only try to upgrade items that can be upgraded.
+       * Upgrade when:
+       *
+       * - unlocked
+       * - not max level
+       * - enough experience
+       * - enough currency
        */
       if (item.isUnlocked() && !item.isMaxLevel() && item.hasEnoughExp()) {
         const itemCost = item.calculateCost();
 
         if (itemCost.amount < App.game.wallet.currencies[itemCost.currency]()) {
-          /*
-           * We can't use item.isMaxLevel() immediately after buy(),
-           * because the game updates asynchronously.
-           */
           item.buy();
         }
       }
@@ -583,7 +633,7 @@ class AutomationItems {
     }
 
     /*
-     * Everything is maxed.
+     * Everything is max level.
      */
     if (areAllItemsMaxedOut) {
       /*
@@ -594,29 +644,21 @@ class AutomationItems {
       this.__internal__oakUpgradeContainer.hidden = true;
 
       /*
-       * Update Auto Upgrade visibility.
+       * Update main Auto Upgrade menu visibility.
        */
       this.__internal__updateUpgradeContainerVisibility();
 
       /*
-       * Stop loop.
+       * Stop Oak loop.
        */
       this.__internal__toggleAutoOakUpgrade(false);
     }
   }
 
   /***************************************************************************
-   * GEM UPGRADE LOOP
+   * GEM LOOP
    ***************************************************************************/
 
-  /**
-   * @brief The Gem upgrade loop
-   *
-   * Any Pokémon weakness efficiency will be upgraded if:
-   * - It's valid
-   * - It's not max-leveled
-   * - The player has enough Gems
-   */
   static __internal__gemUpgradeLoop() {
     let areAllGemsMaxedOut = true;
 
@@ -650,7 +692,7 @@ class AutomationItems {
     }
 
     /*
-     * Everything is maxed.
+     * Everything maxed.
      */
     if (areAllGemsMaxedOut) {
       /*
@@ -661,12 +703,12 @@ class AutomationItems {
       this.__internal__gemUpgradeContainer.hidden = true;
 
       /*
-       * Update Auto Upgrade visibility.
+       * Update main container.
        */
       this.__internal__updateUpgradeContainerVisibility();
 
       /*
-       * Stop loop.
+       * Stop Gem loop.
        */
       this.__internal__toggleAutoGemUpgrade(false);
     }
@@ -676,11 +718,6 @@ class AutomationItems {
    * GEM HELPERS
    ***************************************************************************/
 
-  /**
-   * @brief Determines if every type affinity has been maxed-out
-   *
-   * @returns True if no more upgrades are available, false otherwise
-   */
   static __internal__areEveryGemsMaxedOut() {
     /*
      * Iterate over Gem types.
