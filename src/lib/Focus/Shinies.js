@@ -1,57 +1,40 @@
 /**
  * @class AutomationFocusShinies
  *
- * Route shiny hunting Focus.
+ * New shinies only:
+ * - Keeps PokéClicker's native route order.
+ * - Route A = first accessible route with at least one missing shiny.
+ * - Route B = next accessible route that ALSO has at least one missing shiny.
+ * - Rapidly bounces A <-> B and catches missing shinies on both routes.
+ * - If only one incomplete route remains, Route B becomes the last completed
+ *   route so the fast route-switch reroll can continue.
+ * - Optional shiny Roamers are caught when encountered.
  *
- * New shinies only mode:
- * - uses PokéClicker's native Routes.getRoutesByRegion(region) order;
- * - this is the same base route order used by route achievements;
- * - targets the first accessible route that still contains a missing shiny;
- * - bounces between that target route and the next accessible route;
- * - once every shiny from the target route is owned, automatically advances
- *   to the next incomplete route;
- * - optionally catches shiny Roamers encountered during the search;
- * - if normal route shinies are complete and shiny Roamers are still missing,
- *   it switches to a Roamer cleanup phase.
- *
- * Any shiny mode:
- * - bounces between an accessible route and the next accessible route;
- * - catches every shiny encountered;
- * - optionally includes shiny Roamers.
+ * Any shiny:
+ * - Bounces between two accessible routes.
+ * - Catches every shiny encountered.
  */
 class AutomationFocusShinies {
-  /******************************************************************************\
-    |***    Focus specific members, should only be used by focus sub-classes    ***|
-    \******************************************************************************/
-
   static __registerFunctionalities(functionalitiesList) {
     functionalitiesList.push({
       id: "Shinies",
-
       name: "Shinies",
-
       tooltip:
-        "Hunts shiny Pokémon on routes by rapidly alternating between two routes" +
+        "Hunts shiny Pokémon on routes by rapidly alternating between routes" +
         Automation.Menu.TooltipSeparator +
-        "New shinies only: completes routes one by one using PokéClicker's route order.\n" +
+        "New shinies only: routes A and B both contain missing shinies whenever possible.\n" +
+        "If only one incomplete route remains, a completed route is used as the bounce route.\n" +
         "Any shiny: catches every shiny encountered.\n" +
         "Optional shiny Roamers can also be caught.",
-
       run: function () {
         this.__internal__start();
       }.bind(this),
-
       stop: function () {
         this.__internal__stop();
       }.bind(this),
-
       refreshRateAsMs: Automation.Focus.__noFunctionalityRefresh,
     });
   }
-
-  /***************************************************************************
-   * ADVANCED SETTINGS
-   ***************************************************************************/
 
   static __buildAdvancedSettings(parent) {
     Automation.Utils.LocalStorage.setDefaultValue(
@@ -67,14 +50,8 @@ class AutomationFocusShinies {
     const container = document.createElement("div");
 
     container.style.paddingLeft = "10px";
-
     container.style.paddingRight = "10px";
-
     container.style.textAlign = "left";
-
-    /*************************************************************************
-     * HUNT MODE
-     *************************************************************************/
 
     const label = document.createElement("span");
 
@@ -84,9 +61,9 @@ class AutomationFocusShinies {
 
     label.setAttribute(
       "automation-tooltip-text",
-
-      "New shinies only: completes accessible routes one by one using PokéClicker's native route order." +
+      "New shinies only: hunts two incomplete routes at the same time whenever possible." +
         Automation.Menu.TooltipSeparator +
+        "If only one incomplete route remains, the script keeps switching with a completed route for fast rerolls.\n" +
         "Any shiny: catches every shiny encounter and keeps hunting indefinitely.",
     );
 
@@ -98,21 +75,13 @@ class AutomationFocusShinies {
 
     select.style.width = "100%";
 
-    /*************************************************************************
-     * NEW SHINIES ONLY
-     *************************************************************************/
-
     const newOnlyOption = document.createElement("option");
 
     newOnlyOption.value = this.__internal__huntModes.NewOnly;
 
-    newOnlyOption.textContent = "New shinies only - route by route";
+    newOnlyOption.textContent = "New shinies only - 2 routes";
 
     select.options.add(newOnlyOption);
-
-    /*************************************************************************
-     * ANY SHINY
-     *************************************************************************/
 
     const anyOption = document.createElement("option");
 
@@ -122,9 +91,6 @@ class AutomationFocusShinies {
 
     select.options.add(anyOption);
 
-    /*
-     * Restore stored mode.
-     */
     const storedMode = Automation.Utils.LocalStorage.getValue(
       this.__internal__advancedSettings.HuntMode,
     );
@@ -135,13 +101,9 @@ class AutomationFocusShinies {
       ? storedMode
       : this.__internal__huntModes.NewOnly;
 
-    /*
-     * Save mode.
-     */
     select.onchange = function () {
       Automation.Utils.LocalStorage.setValue(
         this.__internal__advancedSettings.HuntMode,
-
         select.value,
       );
     }.bind(this);
@@ -152,29 +114,21 @@ class AutomationFocusShinies {
 
     container.appendChild(document.createElement("br"));
 
-    /*************************************************************************
-     * SHINY ROAMERS
-     *************************************************************************/
-
     Automation.Menu.addLabeledAdvancedSettingsToggleButton(
       "Include shiny roamers",
 
       this.__internal__advancedSettings.IncludeShinyRoamers,
 
-      "Also catches shiny Roamers encountered while completing routes" +
+      "Also catches shiny Roamers encountered while hunting routes" +
         Automation.Menu.TooltipSeparator +
-        "Route-by-route progression remains the priority.\n" +
-        "After all normal route shinies are complete, remaining shiny Roamers are hunted on their boosted x3 route.",
+        "Normal route completion remains the priority.\n" +
+        "After all normal route shinies are complete, remaining shiny Roamers are hunted on their boosted route.",
 
       container,
     );
 
     parent.appendChild(container);
   }
-
-  /*********************************************************************\
-    |***    Internal members, should never be used by other classes    ***|
-    \*********************************************************************/
 
   static __internal__advancedSettings = {
     HuntMode: "Focus-Shinies-HuntMode",
@@ -187,23 +141,11 @@ class AutomationFocusShinies {
     Any: "any",
   };
 
-  /***************************************************************************
-   * LOOP
-   ***************************************************************************/
-
   static __internal__loop = null;
 
   static __internal__loopIntervalMs = 5;
 
-  /*
-   * 10 cycles =
-   * up to 20 freshly generated encounters.
-   */
   static __internal__burstSize = 10;
-
-  /***************************************************************************
-   * ROUTE PLAN
-   ***************************************************************************/
 
   static __internal__primaryRoute = null;
 
@@ -211,51 +153,32 @@ class AutomationFocusShinies {
 
   static __internal__region = null;
 
-  /*
-   * "routes":
-   * Sequential normal route completion.
-   *
-   * "roamers":
-   * Normal route shinies are complete and
-   * only shiny Roamers remain.
-   *
-   * "any":
-   * Any shiny mode.
-   */
   static __internal__phase = null;
-
-  /***************************************************************************
-   * ENCOUNTER STATE
-   ***************************************************************************/
 
   static __internal__lockedEnemy = null;
 
+  static __internal__lockedRoute = null;
+
   static __internal__captureFilterEnabled = false;
 
-  static __internal__singleRouteFallback = false;
+  /*
+   * Most recently completed normal route
+   * during this Focus session.
+   */
+  static __internal__lastCompletedRoute = null;
 
   /*************************\
     |*        START        *|
     \*************************/
 
   static __internal__start() {
-    /*
-     * Already running.
-     */
     if (this.__internal__loop !== null) {
       return;
     }
 
-    /*
-     * Don't start inside an instance.
-     */
     if (!Automation.Focus.__ensureNoInstanceIsInProgress()) {
       return;
     }
-
-    /*************************************************************************
-     * POKEBALL
-     *************************************************************************/
 
     const selectedPokeball = this.__internal__getSelectedPokeball();
 
@@ -265,17 +188,13 @@ class AutomationFocusShinies {
       return;
     }
 
-    /*************************************************************************
-     * ROUTE PLAN
-     *************************************************************************/
+    this.__internal__lastCompletedRoute = null;
+
+    this.__internal__lockedRoute = null;
 
     if (!this.__internal__refreshRoutePlan(true)) {
       return;
     }
-
-    /*************************************************************************
-     * AUTO CLICK
-     *************************************************************************/
 
     Automation.Menu.setButtonDisabledState(
       Automation.Click.Settings.FeatureEnabled,
@@ -285,14 +204,7 @@ class AutomationFocusShinies {
       "The 'Focus on Shinies' feature is enabled",
     );
 
-    /*
-     * Auto Click always stays ON.
-     */
     Automation.Click.toggleAutoClick(true);
-
-    /*************************************************************************
-     * CAPTURE FILTER
-     *************************************************************************/
 
     Automation.Utils.Pokeball.disableAutomationFilter();
 
@@ -300,21 +212,14 @@ class AutomationFocusShinies {
 
     this.__internal__lockedEnemy = null;
 
-    /*************************************************************************
-     * INITIAL ROUTE
-     *************************************************************************/
-
     const initialRoute =
       this.__internal__secondaryRoute ?? this.__internal__primaryRoute;
 
     Automation.Utils.Route.moveToRoute(
       initialRoute.number,
+
       this.__internal__region,
     );
-
-    /*************************************************************************
-     * START LOOP
-     *************************************************************************/
 
     this.__internal__loop = setInterval(
       this.__internal__tick.bind(this),
@@ -336,28 +241,16 @@ class AutomationFocusShinies {
 
     this.__internal__loop = null;
 
-    /*
-     * Remove temporary capture filter.
-     */
     this.__internal__disableCaptureFilter();
 
-    /*
-     * Auto Click stays enabled.
-     */
     Automation.Click.toggleAutoClick(true);
 
-    /*
-     * Restore Auto Click menu button.
-     */
     Automation.Menu.setButtonDisabledState(
       Automation.Click.Settings.FeatureEnabled,
 
       false,
     );
 
-    /*
-     * Reset state.
-     */
     this.__internal__primaryRoute = null;
 
     this.__internal__secondaryRoute = null;
@@ -368,7 +261,9 @@ class AutomationFocusShinies {
 
     this.__internal__lockedEnemy = null;
 
-    this.__internal__singleRouteFallback = false;
+    this.__internal__lockedRoute = null;
+
+    this.__internal__lastCompletedRoute = null;
   }
 
   /************************\
@@ -376,14 +271,7 @@ class AutomationFocusShinies {
     \************************/
 
   static __internal__tick() {
-    /*
-     * Keep Auto Click enabled.
-     */
     Automation.Click.toggleAutoClick(true);
-
-    /*************************************************************************
-     * INSTANCE SAFETY
-     *************************************************************************/
 
     if (Automation.Utils.isInInstanceState()) {
       Automation.Focus.__ensureNoInstanceIsInProgress();
@@ -391,16 +279,9 @@ class AutomationFocusShinies {
       return;
     }
 
-    /*
-     * Don't move during capture animation.
-     */
     if (Battle.catching()) {
       return;
     }
-
-    /*************************************************************************
-     * ROUTE PLAN
-     *************************************************************************/
 
     if (!this.__internal__refreshRoutePlan(false)) {
       return;
@@ -413,54 +294,87 @@ class AutomationFocusShinies {
      *************************************************************************/
 
     if (this.__internal__lockedEnemy !== null) {
-      /*
-       * Same shiny is still on screen.
-       */
       if (enemy === this.__internal__lockedEnemy) {
         return;
       }
 
-      /*
-       * Encounter finished.
-       */
+      const previousLockedRoute = this.__internal__lockedRoute;
+
       this.__internal__lockedEnemy = null;
+
+      this.__internal__lockedRoute = null;
 
       this.__internal__disableCaptureFilter();
 
       Automation.Click.toggleAutoClick(true);
 
       /*
-       * Capturing the shiny may have completed
-       * the current route.
+       * If the shiny we just caught completed
+       * the route where it was found, remember it.
        *
-       * Immediately rebuild the route plan.
+       * This route becomes the preferred bounce
+       * route if only one incomplete route remains.
        */
+      if (
+        previousLockedRoute &&
+        this.__internal__getHuntMode() === this.__internal__huntModes.NewOnly
+      ) {
+        const routes = this.__internal__getAccessibleRoutes(
+          previousLockedRoute.region,
+        );
+
+        const completedRoute = routes.find(
+          (route) =>
+            route.region === previousLockedRoute.region &&
+            route.number === previousLockedRoute.number,
+        );
+
+        if (
+          completedRoute &&
+          !this.__internal__routeHasMissingShiny(completedRoute)
+        ) {
+          this.__internal__lastCompletedRoute = completedRoute;
+        }
+      }
+
       if (!this.__internal__refreshRoutePlan(true)) {
         return;
       }
     }
 
     /*************************************************************************
-     * ONLY ONE ROUTE AVAILABLE
+     * NO SECOND ROUTE AVAILABLE
      *************************************************************************/
 
+    /*
+     * This should now only happen if there
+     * literally isn't any other accessible route.
+     */
     if (this.__internal__secondaryRoute === null) {
-      this.__internal__singleRouteFallback = true;
+      const targetRoute = this.__internal__primaryRoute;
 
-      if (enemy && this.__internal__isWantedShiny(enemy)) {
-        this.__internal__lockTarget(enemy);
+      if (
+        player.region !== this.__internal__region ||
+        player.route !== targetRoute.number
+      ) {
+        Automation.Utils.Route.moveToRoute(
+          targetRoute.number,
+
+          this.__internal__region,
+        );
       }
 
-      /*
-       * No bounce possible.
-       *
-       * Auto Click fights normally.
-       */
+      const currentEnemy = Battle.enemyPokemon();
+
+      if (currentEnemy && this.__internal__isWantedShiny(currentEnemy)) {
+        this.__internal__lockTarget(currentEnemy);
+      }
+
       return;
     }
 
     /*************************************************************************
-     * FAST SEARCH
+     * FAST BOUNCE
      *************************************************************************/
 
     this.__internal__disableCaptureFilter();
@@ -473,11 +387,20 @@ class AutomationFocusShinies {
     \******************************/
 
   static __internal__performBounceBurst() {
+    const primaryRoute = this.__internal__primaryRoute;
+
+    const secondaryRoute = this.__internal__secondaryRoute;
+
+    if (!primaryRoute || !secondaryRoute) {
+      return;
+    }
+
     let enemy = Battle.enemyPokemon();
 
-    /*
-     * Current enemy may already be a wanted shiny.
-     */
+    /*************************************************************************
+     * CURRENT ENCOUNTER
+     *************************************************************************/
+
     if (enemy && this.__internal__isWantedShiny(enemy)) {
       this.__internal__lockTarget(enemy);
 
@@ -485,12 +408,15 @@ class AutomationFocusShinies {
     }
 
     /*************************************************************************
-     * PARK ON SECONDARY ROUTE
+     * PARK ON B
      *************************************************************************/
 
-    if (player.route !== this.__internal__secondaryRoute.number) {
+    if (
+      player.region !== this.__internal__region ||
+      player.route !== secondaryRoute.number
+    ) {
       Automation.Utils.Route.moveToRoute(
-        this.__internal__secondaryRoute.number,
+        secondaryRoute.number,
 
         this.__internal__region,
       );
@@ -505,7 +431,7 @@ class AutomationFocusShinies {
     }
 
     /*************************************************************************
-     * BURST
+     * A <-> B
      *************************************************************************/
 
     for (let i = 0; i < this.__internal__burstSize; i++) {
@@ -514,18 +440,15 @@ class AutomationFocusShinies {
       }
 
       /**********************************************************************
-       * PRIMARY / TARGET ROUTE
+       * ROUTE A
        **********************************************************************/
 
       Automation.Utils.Route.moveToRoute(
-        this.__internal__primaryRoute.number,
+        primaryRoute.number,
 
         this.__internal__region,
       );
 
-      /*
-       * New encounter generated immediately.
-       */
       enemy = Battle.enemyPokemon();
 
       if (enemy && this.__internal__isWantedShiny(enemy)) {
@@ -535,11 +458,11 @@ class AutomationFocusShinies {
       }
 
       /**********************************************************************
-       * SECONDARY / NEXT ROUTE
+       * ROUTE B
        **********************************************************************/
 
       Automation.Utils.Route.moveToRoute(
-        this.__internal__secondaryRoute.number,
+        secondaryRoute.number,
 
         this.__internal__region,
       );
@@ -559,29 +482,15 @@ class AutomationFocusShinies {
     \************************/
 
   static __internal__isWantedShiny(enemy) {
-    /*
-     * Not shiny.
-     */
     if (!enemy?.shiny) {
       return false;
     }
 
-    /*************************************************************************
-     * ROAMER
-     *************************************************************************/
-
     const isRoamer = enemy.encounterType === EncounterType.roamer;
 
-    /*
-     * Shiny Roamers disabled.
-     */
     if (isRoamer && !this.__internal__includeShinyRoamers()) {
       return false;
     }
-
-    /*************************************************************************
-     * ANY SHINY
-     *************************************************************************/
 
     const mode = this.__internal__getHuntMode();
 
@@ -589,19 +498,15 @@ class AutomationFocusShinies {
       return true;
     }
 
-    /*************************************************************************
-     * NEW SHINY ONLY
-     *************************************************************************/
+    return !App.game.party.alreadyCaughtPokemon(
+      enemy.id,
 
-    /*
-     * If we already own the shiny,
-     * ignore it.
-     */
-    return !App.game.party.alreadyCaughtPokemon(enemy.id, true);
+      true,
+    );
   }
 
   /************************\
-    |*     LOCK SHINY     *|
+    |*     LOCK TARGET    *|
     \************************/
 
   static __internal__lockTarget(enemy) {
@@ -613,21 +518,24 @@ class AutomationFocusShinies {
       return;
     }
 
-    /*
-     * Lock exact encounter.
-     */
     this.__internal__lockedEnemy = enemy;
 
     /*
-     * Catch only while shiny is present.
+     * Remember where the shiny was found.
+     *
+     * If that capture completes the route,
+     * we can use it later as the fallback B.
      */
+    this.__internal__lockedRoute = {
+      region: player.region,
+
+      number: player.route,
+    };
+
     Automation.Utils.Pokeball.catchEverythingWith(selectedPokeball);
 
     this.__internal__captureFilterEnabled = true;
 
-    /*
-     * Auto Click kills it.
-     */
     Automation.Click.toggleAutoClick(true);
   }
 
@@ -689,23 +597,22 @@ class AutomationFocusShinies {
 
   static __internal__getAccessibleRoutes(region) {
     /*
-     * IMPORTANT:
-     *
-     * Do NOT sort these routes ourselves.
-     *
-     * Routes.getRoutesByRegion(region) already returns PokéClicker's
-     * native route order.
-     *
-     * Route achievements are also registered by iterating directly over
-     * Routes.getRoutesByRegion(region), so using this array as-is gives
-     * Shiny Focus the same base route ordering.
+     * Keep PokéClicker's native route order.
      */
     return Routes.getRoutesByRegion(region).filter(
       (route) =>
         !Automation.Utils.Route.isInMagikarpJumpIsland(
           route.region,
+
           route.subRegion,
-        ) && Automation.Utils.Route.canMoveToRoute(route.number, region, route),
+        ) &&
+        Automation.Utils.Route.canMoveToRoute(
+          route.number,
+
+          region,
+
+          route,
+        ),
     );
   }
 
@@ -715,7 +622,11 @@ class AutomationFocusShinies {
 
   static __internal__getRoutePokemon(route) {
     try {
-      return RouteHelper.getAvailablePokemonList(route.number, route.region);
+      return RouteHelper.getAvailablePokemonList(
+        route.number,
+
+        route.region,
+      );
     } catch (error) {
       return [];
     }
@@ -731,9 +642,6 @@ class AutomationFocusShinies {
     const seen = new Set();
 
     for (const pokemonName of this.__internal__getRoutePokemon(route)) {
-      /*
-       * Avoid duplicate species.
-       */
       if (seen.has(pokemonName)) {
         continue;
       }
@@ -742,10 +650,17 @@ class AutomationFocusShinies {
 
       const pokemon = PokemonHelper.getPokemonByName(pokemonName);
 
-      /*
-       * Shiny not registered.
-       */
-      if (!App.game.party.alreadyCaughtPokemon(pokemon.id, true)) {
+      if (!pokemon) {
+        continue;
+      }
+
+      if (
+        !App.game.party.alreadyCaughtPokemon(
+          pokemon.id,
+
+          true,
+        )
+      ) {
         result.push(pokemonName);
       }
     }
@@ -762,10 +677,6 @@ class AutomationFocusShinies {
     \************************/
 
   static __internal__getFirstIncompleteRoute(routes) {
-    /*
-     * routes is already in PokéClicker's
-     * native / Achievement route order.
-     */
     return (
       routes.find((route) => this.__internal__routeHasMissingShiny(route)) ??
       null
@@ -773,75 +684,129 @@ class AutomationFocusShinies {
   }
 
   /************************\
-    |* MISSING ROAMERS    *|
+    |* SECOND TARGET ROUTE*|
     \************************/
 
-  static __internal__getMissingShinyRoamerGroups(region, routes) {
-    if (!this.__internal__includeShinyRoamers()) {
-      return [];
+  static __internal__getNextIncompleteRoute(
+    routes,
+
+    targetRoute,
+  ) {
+    if (routes.length <= 1) {
+      return null;
     }
 
-    const groups = new Map();
+    const targetIndex = routes.findIndex(
+      (route) => route.number === targetRoute.number,
+    );
 
-    /*
-     * Keep the same route order passed to us.
-     *
-     * This means roaming groups are also discovered
-     * according to PokéClicker's native route order.
-     */
-    for (const route of routes) {
-      const group = RoamingPokemonList.findGroup(region, route.subRegion || 0);
+    if (targetIndex === -1) {
+      return (
+        routes.find(
+          (route) =>
+            route.number !== targetRoute.number &&
+            this.__internal__routeHasMissingShiny(route),
+        ) ?? null
+      );
+    }
 
-      if (groups.has(group)) {
+    for (let offset = 1; offset < routes.length; offset++) {
+      const candidate = routes[(targetIndex + offset) % routes.length];
+
+      if (candidate.number === targetRoute.number) {
         continue;
       }
 
-      const roamers =
-        RoamingPokemonList.getSubRegionalGroupRoamers(region, group) ?? [];
-
-      const missingRoamers = roamers.filter((data) => {
-        const pokemon = PokemonHelper.getPokemonByName(data.pokemon.name);
-
-        return !App.game.party.alreadyCaughtPokemon(pokemon.id, true);
-      });
-
-      if (missingRoamers.length > 0) {
-        groups.set(group, missingRoamers);
+      if (this.__internal__routeHasMissingShiny(candidate)) {
+        return candidate;
       }
     }
 
-    return Array.from(groups.entries()).map(([group, roamers]) => ({
-      group,
-      roamers,
-    }));
+    return null;
   }
 
   /************************\
-    |* GROUP ROUTE LIST   *|
+    |* COMPLETED BOUNCE B *|
     \************************/
 
-  static __internal__getRoutesForRoamingGroup(region, group, accessibleRoutes) {
-    const groupSubRegions = RoamingPokemonList.getGroupSubRegions(
-      region,
-      group,
+  /**
+   * If A is the only incomplete route remaining,
+   * continue the fast A <-> B route switching
+   * using a completed route as B.
+   *
+   * Priority:
+   *
+   * 1. Most recently completed route.
+   * 2. Previous completed route in native order.
+   * 3. Any completed accessible route.
+   */
+  static __internal__getCompletedBounceRoute(
+    routes,
+
+    targetRoute,
+  ) {
+    if (routes.length <= 1) {
+      return null;
+    }
+
+    const isValidCompletedRoute = (route) =>
+      route &&
+      route.region === targetRoute.region &&
+      route.number !== targetRoute.number &&
+      !this.__internal__routeHasMissingShiny(route);
+
+    /*************************************************************************
+     * LAST COMPLETED ROUTE
+     *************************************************************************/
+
+    if (this.__internal__lastCompletedRoute) {
+      const rememberedRoute = routes.find(
+        (route) =>
+          route.region === this.__internal__lastCompletedRoute.region &&
+          route.number === this.__internal__lastCompletedRoute.number,
+      );
+
+      if (isValidCompletedRoute(rememberedRoute)) {
+        return rememberedRoute;
+      }
+    }
+
+    /*************************************************************************
+     * PREVIOUS COMPLETED ROUTE IN NATIVE ORDER
+     *************************************************************************/
+
+    const targetIndex = routes.findIndex(
+      (route) => route.number === targetRoute.number,
     );
 
-    /*
-     * filter() preserves accessibleRoutes order.
-     */
-    return accessibleRoutes.filter((route) =>
-      groupSubRegions.includes(route.subRegion || 0),
-    );
+    if (targetIndex !== -1) {
+      for (let offset = 1; offset < routes.length; offset++) {
+        const index = (targetIndex - offset + routes.length) % routes.length;
+
+        const candidate = routes[index];
+
+        if (isValidCompletedRoute(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
+    /*************************************************************************
+     * ANY COMPLETED ROUTE
+     *************************************************************************/
+
+    return routes.find(isValidCompletedRoute) ?? null;
   }
 
   /************************\
-    |*    NEXT ROUTE      *|
+    |* GENERIC NEXT ROUTE *|
     \************************/
 
-  static __internal__getNextRoute(routes, targetRoute) {
-    /*
-     * No second route available.
-     */
+  static __internal__getNextRoute(
+    routes,
+
+    targetRoute,
+  ) {
     if (routes.length <= 1) {
       return null;
     }
@@ -854,13 +819,91 @@ class AutomationFocusShinies {
       return routes[0];
     }
 
-    /*
-     * Use the NEXT route in PokéClicker's
-     * native route list.
-     *
-     * Last route wraps back to first.
-     */
     return routes[(index + 1) % routes.length];
+  }
+
+  /************************\
+    |* MISSING ROAMERS    *|
+    \************************/
+
+  static __internal__getMissingShinyRoamerGroups(
+    region,
+
+    routes,
+  ) {
+    if (!this.__internal__includeShinyRoamers()) {
+      return [];
+    }
+
+    const groups = new Map();
+
+    for (const route of routes) {
+      const group = RoamingPokemonList.findGroup(
+        region,
+
+        route.subRegion || 0,
+      );
+
+      if (groups.has(group)) {
+        continue;
+      }
+
+      const roamers =
+        RoamingPokemonList.getSubRegionalGroupRoamers(
+          region,
+
+          group,
+        ) ?? [];
+
+      const missingRoamers = roamers.filter((data) => {
+        const pokemon = PokemonHelper.getPokemonByName(data.pokemon.name);
+
+        return (
+          pokemon &&
+          !App.game.party.alreadyCaughtPokemon(
+            pokemon.id,
+
+            true,
+          )
+        );
+      });
+
+      if (missingRoamers.length > 0) {
+        groups.set(
+          group,
+
+          missingRoamers,
+        );
+      }
+    }
+
+    return Array.from(groups.entries()).map(([group, roamers]) => ({
+      group,
+
+      roamers,
+    }));
+  }
+
+  /************************\
+    |* GROUP ROUTE LIST   *|
+    \************************/
+
+  static __internal__getRoutesForRoamingGroup(
+    region,
+
+    group,
+
+    accessibleRoutes,
+  ) {
+    const groupSubRegions = RoamingPokemonList.getGroupSubRegions(
+      region,
+
+      group,
+    );
+
+    return accessibleRoutes.filter((route) =>
+      groupSubRegions.includes(route.subRegion || 0),
+    );
   }
 
   /************************\
@@ -872,10 +915,6 @@ class AutomationFocusShinies {
 
     const mode = this.__internal__getHuntMode();
 
-    /*
-     * All unlocked / accessible routes
-     * using PokéClicker's native ordering.
-     */
     const accessibleRoutes = this.__internal__getAccessibleRoutes(region);
 
     if (accessibleRoutes.length === 0) {
@@ -903,74 +942,71 @@ class AutomationFocusShinies {
     if (mode === this.__internal__huntModes.Any) {
       newPhase = "any";
 
-      /*
-       * Prefer current route if accessible.
-       */
       newPrimary =
         accessibleRoutes.find((route) => route.number === player.route) ??
         accessibleRoutes[0];
 
-      /*
-       * Bounce to the next route
-       * in the native route list.
-       */
       newSecondary = this.__internal__getNextRoute(
         accessibleRoutes,
+
         newPrimary,
       );
     } else {
-      /***********************************************************************
-       * NEW SHINIES ONLY
-       *
-       * COMPLETE ROUTES IN POKÉCLICKER / ACHIEVEMENT ORDER.
-       ***********************************************************************/
 
+    /*************************************************************************
+     * NEW SHINIES ONLY
+     *************************************************************************/
       const firstIncompleteRoute =
         this.__internal__getFirstIncompleteRoute(accessibleRoutes);
 
       /***********************************************************************
-       * NORMAL ROUTES STILL INCOMPLETE
+       * NORMAL ROUTES REMAIN
        ***********************************************************************/
 
       if (firstIncompleteRoute !== null) {
         newPhase = "routes";
 
         /*
-         * TARGET:
-         *
-         * First accessible route in PokéClicker's
-         * native list that still contains
-         * at least one missing shiny.
+         * A = first incomplete route.
          */
         newPrimary = firstIncompleteRoute;
 
         /*
-         * BOUNCE:
+         * Prefer another incomplete route as B.
          *
-         * Next accessible route in that same list.
+         * This means A and B progress together.
          */
-        newSecondary = this.__internal__getNextRoute(
+        newSecondary = this.__internal__getNextIncompleteRoute(
           accessibleRoutes,
+
           newPrimary,
         );
+
+        /*
+         * Only ONE incomplete route remains.
+         *
+         * Instead of stopping the rapid switch,
+         * use the last completed route as B.
+         */
+        if (newSecondary === null) {
+          newSecondary = this.__internal__getCompletedBounceRoute(
+            accessibleRoutes,
+
+            newPrimary,
+          );
+        }
       } else {
 
       /***********************************************************************
-       * NORMAL ROUTES COMPLETE
+       * ALL NORMAL ROUTES COMPLETE
        ***********************************************************************/
-        /*
-         * If shiny Roamers are enabled,
-         * check whether some remain.
-         */
         const missingRoamerGroups =
           this.__internal__getMissingShinyRoamerGroups(
             region,
+
             accessibleRoutes,
           );
 
-        /*
-         * Absolutely everything complete.
-         */
         if (missingRoamerGroups.length === 0) {
           this.__internal__stopBecauseComplete();
 
@@ -978,30 +1014,25 @@ class AutomationFocusShinies {
         }
 
         /*********************************************************************
-         * ROAMER CLEANUP PHASE
+         * ROAMER CLEANUP
          *********************************************************************/
 
         newPhase = "roamers";
 
-        /*
-         * First roaming group encountered in
-         * PokéClicker's route ordering that still
-         * contains a missing shiny Roamer.
-         */
         const groupData = missingRoamerGroups[0];
 
         const groupRoutes = this.__internal__getRoutesForRoamingGroup(
           region,
+
           groupData.group,
+
           accessibleRoutes,
         );
 
-        /*
-         * Get x3 Roamer route.
-         */
         const boostedRouteObservable =
           RoamingPokemonList.getIncreasedChanceRouteBySubRegionGroup(
             region,
+
             groupData.group,
           );
 
@@ -1009,35 +1040,28 @@ class AutomationFocusShinies {
           ? boostedRouteObservable()
           : null;
 
-        /*
-         * Primary = x3 route if accessible.
-         */
         newPrimary = boostedRoute
           ? (groupRoutes.find(
               (route) => route.number === boostedRoute.number,
             ) ?? groupRoutes[0])
           : groupRoutes[0];
 
-        /*
-         * Safety.
-         */
         if (!newPrimary) {
           this.__internal__stopBecauseComplete();
 
           return false;
         }
 
-        /*
-         * Secondary =
-         * next accessible route in the
-         * same roaming group.
-         */
-        newSecondary = this.__internal__getNextRoute(groupRoutes, newPrimary);
+        newSecondary = this.__internal__getNextRoute(
+          groupRoutes,
+
+          newPrimary,
+        );
       }
     }
 
     /*************************************************************************
-     * DID ROUTE PLAN CHANGE?
+     * PLAN CHANGED?
      *************************************************************************/
 
     const routePlanChanged =
@@ -1063,16 +1087,6 @@ class AutomationFocusShinies {
 
     this.__internal__secondaryRoute = newSecondary;
 
-    this.__internal__singleRouteFallback = newSecondary === null;
-
-    /*
-     * IMPORTANT:
-     *
-     * Don't move here.
-     *
-     * The bounce function controls movement
-     * synchronously.
-     */
     return true;
   }
 
