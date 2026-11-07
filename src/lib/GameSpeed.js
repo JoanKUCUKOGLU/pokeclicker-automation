@@ -9,7 +9,7 @@
  * - Dungeon battles (combat only; movement/timer stay x1)
  * - Temporary Battles
  * - Battle Frontier
- * - Underground
+ * - Safari (movement + Safari battle animations/delays)
  * - Farm
  */
 class AutomationGameSpeed {
@@ -19,7 +19,7 @@ class AutomationGameSpeed {
     DungeonBattles: "GameSpeed-DungeonBattles",
     TemporaryBattles: "GameSpeed-TemporaryBattles",
     BattleFrontier: "GameSpeed-BattleFrontier",
-    Underground: "GameSpeed-Underground",
+    Safari: "GameSpeed-Safari",
     Farm: "GameSpeed-Farm",
   };
 
@@ -35,6 +35,8 @@ class AutomationGameSpeed {
       return;
     }
 
+    this.__internal__initializeSafariSpeed();
+    this.__internal__patchSafariAutomationLoop();
     this.__internal__patchBattleFrontierAttack();
     this.__internal__patchGameTick();
   }
@@ -56,6 +58,14 @@ class AutomationGameSpeed {
   static __internal__battleFrontierLastVirtualPokemonAttack = -Infinity;
 
   static __internal__battleFrontierWasAccelerated = false;
+
+  static __internal__safariBaseMoveSpeed = null;
+
+  static __internal__safariBaseBattleSpeeds = null;
+
+  static __internal__safariAutomationPatched = false;
+
+  static __internal__originalSafariAutomationToggle = null;
 
   /**
    * @brief Builds the centralized Game Speed panel.
@@ -108,9 +118,9 @@ class AutomationGameSpeed {
     );
 
     this.__internal__addSpeedSelector(
-      "Underground",
-      this.Settings.Underground,
-      "Accelerates native Underground time: mine discovery, helpers, tool recovery and battery.",
+      "Safari",
+      this.Settings.Safari,
+      "Accelerates Safari movement and Safari battle animations/delays. Safari Level speed bonuses still apply.",
       panelContainer,
     );
 
@@ -213,8 +223,8 @@ class AutomationGameSpeed {
       Automation.Utils.LocalStorage.setValue(setting, multiplier.toString());
 
       /*
-       * Battle Frontier uses its own
-       * virtual attack clock.
+       * Battle Frontier uses
+       * a virtual attack clock.
        */
       if (setting === AutomationGameSpeed.Settings.BattleFrontier) {
         AutomationGameSpeed.__internal__resetBattleFrontierVirtualClock();
@@ -222,6 +232,14 @@ class AutomationGameSpeed {
         if (typeof BattleFrontierBattle !== "undefined") {
           BattleFrontierBattle.lastPokemonAttack = 0;
         }
+      }
+
+      /*
+       * Safari uses direct animation
+       * and movement delay modification.
+       */
+      if (setting === AutomationGameSpeed.Settings.Safari) {
+        AutomationGameSpeed.__internal__applySafariSpeed();
       }
     });
 
@@ -262,17 +280,210 @@ class AutomationGameSpeed {
     return this.__internal__getMultiplier(this.Settings.BattleFrontier);
   }
 
-  static __internal__getUndergroundMultiplier() {
-    return this.__internal__getMultiplier(this.Settings.Underground);
+  static __internal__getSafariMultiplier() {
+    return this.__internal__getMultiplier(this.Settings.Safari);
   }
 
   static __internal__getFarmMultiplier() {
     return this.__internal__getMultiplier(this.Settings.Farm);
   }
 
+  /*********************************************************************\
+    |***                         Safari                                ***|
+    \*********************************************************************/
+
   /**
-   * @brief Resets the virtual clock used by
-   *        the accelerated Battle Frontier.
+   * @brief Caches the vanilla Safari timings
+   *        and applies the selected speed.
+   */
+  static __internal__initializeSafariSpeed() {
+    if (
+      typeof Safari === "undefined" ||
+      typeof SafariBattle === "undefined" ||
+      !SafariBattle.Speed
+    ) {
+      return;
+    }
+
+    if (this.__internal__safariBaseMoveSpeed === null) {
+      this.__internal__safariBaseMoveSpeed = Safari.moveSpeed;
+    }
+
+    if (this.__internal__safariBaseBattleSpeeds === null) {
+      this.__internal__safariBaseBattleSpeeds = {
+        ...SafariBattle.Speed,
+      };
+    }
+
+    this.__internal__applySafariSpeed();
+  }
+
+  /**
+   * @brief Returns a Safari delay divided
+   *        by the selected multiplier.
+   *
+   * 5 ms minimum keeps x100 stable and
+   * prevents 0 ms animation/state races.
+   */
+  static __internal__getSafariDelay(baseDelay) {
+    const multiplier = this.__internal__getSafariMultiplier();
+
+    if (multiplier === 1) {
+      return baseDelay;
+    }
+
+    return Math.max(5, baseDelay / multiplier);
+  }
+
+  /**
+   * @brief Applies Safari movement
+   *        and battle speed.
+   */
+  static __internal__applySafariSpeed() {
+    if (
+      typeof Safari === "undefined" ||
+      typeof SafariBattle === "undefined" ||
+      !SafariBattle.Speed
+    ) {
+      return;
+    }
+
+    if (this.__internal__safariBaseMoveSpeed === null) {
+      this.__internal__safariBaseMoveSpeed = Safari.moveSpeed;
+    }
+
+    if (this.__internal__safariBaseBattleSpeeds === null) {
+      this.__internal__safariBaseBattleSpeeds = {
+        ...SafariBattle.Speed,
+      };
+    }
+
+    /*
+     * Player movement.
+     */
+    Safari.moveSpeed = this.__internal__getSafariDelay(
+      this.__internal__safariBaseMoveSpeed,
+    );
+
+    /*
+     * Ball throw, bait, rocks,
+     * capture animation, flee,
+     * turn delays, etc.
+     */
+    for (const [name, baseDelay] of Object.entries(
+      this.__internal__safariBaseBattleSpeeds,
+    )) {
+      SafariBattle.Speed[name] = this.__internal__getSafariDelay(baseDelay);
+    }
+
+    /*
+     * Our Auto Safari normally checks
+     * what to do every 50 ms.
+     *
+     * Retiming it prevents the automation
+     * itself from becoming the bottleneck.
+     */
+    this.__internal__restartSafariAutomationLoop();
+  }
+
+  /**
+   * @brief Patches our Auto Safari toggle
+   *        so newly-started Safari loops
+   *        automatically use the chosen speed.
+   */
+  static __internal__patchSafariAutomationLoop() {
+    if (this.__internal__safariAutomationPatched) {
+      return;
+    }
+
+    let safariAutomation = null;
+
+    if (typeof Automation !== "undefined" && Automation.Safari) {
+      safariAutomation = Automation.Safari;
+    } else if (typeof AutomationSafari !== "undefined") {
+      safariAutomation = AutomationSafari;
+    }
+
+    if (
+      !safariAutomation ||
+      typeof safariAutomation.__internal__toggleSafariAutomation !== "function"
+    ) {
+      return;
+    }
+
+    this.__internal__safariAutomationPatched = true;
+
+    this.__internal__originalSafariAutomationToggle =
+      safariAutomation.__internal__toggleSafariAutomation;
+
+    safariAutomation.__internal__toggleSafariAutomation = function (...args) {
+      const result =
+        AutomationGameSpeed.__internal__originalSafariAutomationToggle.apply(
+          this,
+          args,
+        );
+
+      AutomationGameSpeed.__internal__restartSafariAutomationLoop();
+
+      return result;
+    };
+  }
+
+  /**
+   * @brief Returns the interval used
+   *        by our Auto Safari automation.
+   *
+   * Normal:
+   * x1   = 50 ms
+   * x2   = 25 ms
+   * x4   = 12.5 ms
+   * x10  = 5 ms
+   * x100 = 5 ms minimum
+   */
+  static __internal__getSafariAutomationInterval() {
+    const multiplier = this.__internal__getSafariMultiplier();
+
+    return Math.max(5, 50 / multiplier);
+  }
+
+  /**
+   * @brief Restarts the existing Auto Safari
+   *        loop at the selected speed.
+   *
+   * Does nothing when Auto Safari is disabled.
+   */
+  static __internal__restartSafariAutomationLoop() {
+    let safariAutomation = null;
+
+    if (typeof Automation !== "undefined" && Automation.Safari) {
+      safariAutomation = Automation.Safari;
+    } else if (typeof AutomationSafari !== "undefined") {
+      safariAutomation = AutomationSafari;
+    }
+
+    if (
+      !safariAutomation ||
+      safariAutomation.__internal__autoSafariLoop === null ||
+      typeof safariAutomation.__internal__safariAutomationLoop !== "function"
+    ) {
+      return;
+    }
+
+    clearInterval(safariAutomation.__internal__autoSafariLoop);
+
+    safariAutomation.__internal__autoSafariLoop = setInterval(
+      safariAutomation.__internal__safariAutomationLoop.bind(safariAutomation),
+      this.__internal__getSafariAutomationInterval(),
+    );
+  }
+
+  /*********************************************************************\
+    |***                    Battle Frontier                            ***|
+    \*********************************************************************/
+
+  /**
+   * @brief Resets the virtual clock used
+   *        by the accelerated Battle Frontier.
    */
   static __internal__resetBattleFrontierVirtualClock() {
     this.__internal__battleFrontierVirtualTime = 0;
@@ -281,9 +492,10 @@ class AutomationGameSpeed {
   }
 
   /**
-   * @brief Replaces Battle Frontier's real-time
-   *        attack limiter with a virtual-time limiter
-   *        while speed is above x1.
+   * @brief Replaces Battle Frontier's
+   *        real-time attack limiter with
+   *        a virtual-time limiter while
+   *        speed is above x1.
    */
   static __internal__patchBattleFrontierAttack() {
     if (this.__internal__patchedBattleFrontierAttack) {
@@ -307,7 +519,7 @@ class AutomationGameSpeed {
         AutomationGameSpeed.__internal__getBattleFrontierMultiplier();
 
       /*
-       * x1 = completely normal Pokéclicker.
+       * x1 = vanilla.
        */
       if (multiplier === 1) {
         return AutomationGameSpeed.__internal__originalBattleFrontierPokemonAttack.apply(
@@ -317,8 +529,8 @@ class AutomationGameSpeed {
       }
 
       /*
-       * Preserve vanilla alternate-attack behavior
-       * above the player's highest completed stage.
+       * Preserve native alternate attack
+       * behavior above highest stage.
        */
       this.alternateAttack = !this.alternateAttack;
 
@@ -333,8 +545,8 @@ class AutomationGameSpeed {
       const now = AutomationGameSpeed.__internal__battleFrontierVirtualTime;
 
       /*
-       * Vanilla BF attack cooldown:
-       * approximately 450 ms.
+       * Vanilla BF Pokémon attack
+       * cooldown ≈ 450 ms.
        */
       if (
         AutomationGameSpeed.__internal__battleFrontierLastVirtualPokemonAttack >
@@ -370,12 +582,15 @@ class AutomationGameSpeed {
     };
   }
 
+  /*********************************************************************\
+    |***                       Game Tick                               ***|
+    \*********************************************************************/
+
   /**
    * @brief Patches the game's main tick once.
    *
-   * The original game tick still runs exactly once.
-   * Additional updates are executed only for
-   * the selected systems.
+   * The original game tick still runs once.
+   * Extra updates only affect selected systems.
    */
   static __internal__patchGameTick() {
     if (this.__internal__patchedGameTick) {
@@ -420,8 +635,8 @@ class AutomationGameSpeed {
       }
 
       /*
-       * Always execute Pokéclicker's
-       * normal game tick once.
+       * Always execute the normal
+       * Pokéclicker game tick once.
        */
       const result = AutomationGameSpeed.__internal__originalGameTick.apply(
         this,
@@ -430,7 +645,7 @@ class AutomationGameSpeed {
 
       /*
        * =====================================================
-       * Route Battles
+       * Routes
        * =====================================================
        */
       if (stateBeforeTick === GameConstants.GameState.fighting) {
@@ -475,10 +690,8 @@ class AutomationGameSpeed {
           AutomationGameSpeed.__internal__getDungeonBattleMultiplier();
 
         /*
-         * Dungeon combat only.
-         *
-         * Movement and dungeon exploration
-         * timer stay at x1.
+         * Combat only:
+         * no DungeonRunner extra tick.
          */
         for (let i = 1; i < multiplier; i++) {
           if (
@@ -533,46 +746,11 @@ class AutomationGameSpeed {
 
       /*
        * =====================================================
-       * Underground
-       * =====================================================
-       *
-       * The original game tick already executes
-       * underground.update() once.
-       *
-       * Extra calls accelerate:
-       *
-       * - Mine discovery
-       * - Helpers
-       * - Tool recovery
-       * - Battery
-       */
-      const undergroundMultiplier =
-        AutomationGameSpeed.__internal__getUndergroundMultiplier();
-
-      if (undergroundMultiplier > 1 && this.underground.canAccess()) {
-        const delta = GameConstants.TICK_TIME / GameConstants.SECOND;
-
-        for (let i = 1; i < undergroundMultiplier; i++) {
-          this.underground.update(delta);
-        }
-      }
-
-      /*
-       * =====================================================
        * Farm
        * =====================================================
        *
-       * The original game tick already executes
+       * Native gameTick already runs
        * farming.update() once.
-       *
-       * Extra updates accelerate:
-       *
-       * - Berry growth
-       * - Withering
-       * - Mutations
-       * - Wanderers
-       * - Farm Hands
-       * - Mulch timers
        */
       const farmMultiplier =
         AutomationGameSpeed.__internal__getFarmMultiplier();
@@ -621,7 +799,7 @@ class AutomationGameSpeed {
   /**
    * @brief Runs one extra dungeon combat tick.
    *
-   * Movement and dungeon timer stay at x1.
+   * Dungeon movement and timer stay x1.
    */
   static __internal__runDungeonBattleTick() {
     DungeonBattle.counter += GameConstants.TICK_TIME;
@@ -632,7 +810,8 @@ class AutomationGameSpeed {
   }
 
   /**
-   * @brief Runs one extra complete Temporary Battle tick.
+   * @brief Runs one extra complete
+   *        Temporary Battle tick.
    */
   static __internal__runTemporaryBattleTick() {
     TemporaryBattleBattle.counter += GameConstants.TICK_TIME;
@@ -647,7 +826,8 @@ class AutomationGameSpeed {
   }
 
   /**
-   * @brief Runs one extra complete Battle Frontier tick.
+   * @brief Runs one extra complete
+   *        Battle Frontier tick.
    */
   static __internal__runBattleFrontierTick() {
     BattleFrontierBattle.counter += GameConstants.TICK_TIME;
