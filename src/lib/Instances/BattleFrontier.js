@@ -4,7 +4,7 @@
  * Features:
  * - Automatically restarts the Battle Frontier when a run ends
  * - Battle Frontier speed: x1 / x2 / x4 / x10 / x100
- * - Battle Frontier notifications automatically disappear after 5 seconds
+ * - Battle Frontier reward notifications are hidden
  *
  * No max stage or token farming logic.
  */
@@ -240,26 +240,13 @@ class AutomationBattleFrontier {
       return;
     }
 
-    /*
-     * Already fighting.
-     */
     if (BattleFrontierRunner.started()) {
       return;
     }
 
-    /*
-     * Auto start the Battle Frontier.
-     *
-     * true means the current checkpoint
-     * can be used when applicable.
-     */
     try {
       BattleFrontierRunner.start(true);
     } catch (error) {
-      /*
-       * The BF may briefly be in a transition state
-       * between the end of one run and the next.
-       */
       if (!firstRun) {
         console.debug(
           "[Pokeclicker Automation] Battle Frontier restart pending:",
@@ -270,14 +257,13 @@ class AutomationBattleFrontier {
   }
 
   /*********************************************************************\
-    |***                  Notification timeout                        ***|
+    |***                  Notification blocker                        ***|
     \*********************************************************************/
 
   /**
-   * @brief Forces Battle Frontier notifications to disappear
-   *        automatically after 5 seconds.
+   * @brief Completely blocks Battle Frontier notifications.
    *
-   * Other Pokéclicker notifications are not modified.
+   * Other Pokéclicker notifications are left untouched.
    */
   static __internal__patchBattleFrontierNotifications() {
     if (this.__internal__notificationsPatched) {
@@ -295,25 +281,54 @@ class AutomationBattleFrontier {
 
     this.__internal__originalNotify = Notifier.notify;
 
-    Notifier.notify = function (options) {
+    Notifier.notify = function (options, ...args) {
       try {
-        if (
-          options?.setting ===
-          NotificationConstants.NotificationSetting.General.battle_frontier
-        ) {
-          options = {
-            ...options,
+        const battleFrontierSetting =
+          NotificationConstants?.NotificationSetting?.General?.battle_frontier;
 
-            /*
-             * Battle Frontier notification
-             * disappears after 5 seconds.
-             */
-            timeout: 5 * GameConstants.SECOND,
-          };
+        const isBattleFrontierSetting =
+          battleFrontierSetting !== undefined &&
+          options?.setting === battleFrontierSetting;
+
+        const isBattleFrontierTitle =
+          typeof options?.title === "string" &&
+          options.title.toLowerCase().includes("battle frontier");
+
+        const strippedMessage =
+          typeof options?.strippedMessage === "string"
+            ? options.strippedMessage
+            : "";
+
+        const normalMessage =
+          typeof options?.message === "string" ? options.message : "";
+
+        const messageText = `${strippedMessage} ${normalMessage}`.toLowerCase();
+
+        /*
+         * Extra fallback detection in case the game's
+         * notification setting changes in a future update.
+         */
+        const looksLikeBattleFrontierReward =
+          messageText.includes("battle points") &&
+          (messageText.includes("stage") ||
+            messageText.includes("pokédollars") ||
+            messageText.includes("money"));
+
+        if (
+          isBattleFrontierSetting ||
+          isBattleFrontierTitle ||
+          looksLikeBattleFrontierReward
+        ) {
+          /*
+           * Do not call the original notifier.
+           *
+           * The notification is therefore never created.
+           */
+          return;
         }
       } catch (error) {
         console.debug(
-          "[Pokeclicker Automation] Could not modify Battle Frontier notification timeout:",
+          "[Pokeclicker Automation] Could not identify Battle Frontier notification:",
           error,
         );
       }
@@ -321,6 +336,7 @@ class AutomationBattleFrontier {
       return AutomationBattleFrontier.__internal__originalNotify.call(
         this,
         options,
+        ...args,
       );
     };
   }
@@ -352,10 +368,6 @@ class AutomationBattleFrontier {
 
     this.__internal__resetVirtualClock();
 
-    /*
-     * Reset native cooldown so switching
-     * speeds feels immediate.
-     */
     if (typeof BattleFrontierBattle !== "undefined") {
       BattleFrontierBattle.lastPokemonAttack = 0;
     }
@@ -389,12 +401,6 @@ class AutomationBattleFrontier {
 
     this.__internal__patched = true;
 
-    /*
-     * Preserve existing implementations.
-     *
-     * This also helps compatibility with scripts
-     * that were loaded before this one.
-     */
     this.__internal__originalGameTick = App.game.gameTick;
 
     this.__internal__originalPokemonAttack = BattleFrontierBattle.pokemonAttack;
@@ -410,9 +416,7 @@ class AutomationBattleFrontier {
         AutomationBattleFrontier.__internal__getSpeedMultiplier();
 
       /*
-       * x1:
-       *
-       * Completely normal Pokéclicker behavior.
+       * x1 = original Pokéclicker behavior.
        */
       if (multiplier === 1) {
         return AutomationBattleFrontier.__internal__originalPokemonAttack.apply(
@@ -422,8 +426,8 @@ class AutomationBattleFrontier {
       }
 
       /*
-       * Preserve the native alternate attack behavior
-       * when pushing beyond the player's highest stage.
+       * Preserve native alternate attack behavior
+       * above the highest completed BF stage.
        */
       this.alternateAttack = !this.alternateAttack;
 
@@ -438,13 +442,8 @@ class AutomationBattleFrontier {
       const now = AutomationBattleFrontier.__internal__virtualTime;
 
       /*
-       * Native Battle Frontier Pokémon attack
-       * cooldown = approximately 450 ms.
-       *
-       * We use virtual BF time instead of real
-       * Date.now(), otherwise high multipliers
-       * would accelerate the timer faster than
-       * the actual attacks.
+       * Native BF attack cooldown:
+       * approximately 450 ms.
        */
       if (
         AutomationBattleFrontier.__internal__lastVirtualPokemonAttack >
@@ -474,17 +473,6 @@ class AutomationBattleFrontier {
       );
 
       if (!enemy.isAlive()) {
-        /*
-         * Let Pokéclicker's native Battle Frontier
-         * defeat logic handle:
-         *
-         * - Gems
-         * - Egg progress
-         * - Enemy progression
-         * - Stage progression
-         * - Stage timer reset
-         * - Next Pokémon generation
-         */
         this.defeatPokemon();
       }
     };
@@ -504,13 +492,8 @@ class AutomationBattleFrontier {
         BattleFrontierRunner.started();
 
       /*
-       * Outside Battle Frontier:
-       *
-       * completely normal game.
-       *
-       * x1:
-       *
-       * completely normal Battle Frontier.
+       * Outside BF or x1:
+       * normal game behavior.
        */
       if (!frontierRunning || multiplier === 1) {
         if (AutomationBattleFrontier.__internal__frontierWasRunning) {
@@ -535,7 +518,7 @@ class AutomationBattleFrontier {
       }
 
       /*
-       * First tick is the normal game tick.
+       * Native game tick.
        */
       AutomationBattleFrontier.__internal__virtualTime +=
         GameConstants.TICK_TIME;
@@ -544,25 +527,9 @@ class AutomationBattleFrontier {
         AutomationBattleFrontier.__internal__originalGameTick.apply(this, args);
 
       /*
-       * Additional BF-only simulated ticks.
-       *
-       * x2:
-       * 1 real + 1 virtual
-       *
-       * x4:
-       * 1 real + 3 virtual
-       *
-       * x10:
-       * 1 real + 9 virtual
-       *
-       * x100:
-       * 1 real + 99 virtual
+       * Extra BF-only ticks.
        */
       for (let i = 1; i < multiplier; i++) {
-        /*
-         * A run may end during one of
-         * the simulated ticks.
-         */
         if (
           this.gameState !== GameConstants.GameState.battleFrontier ||
           !BattleFrontierRunner.started()
@@ -583,16 +550,12 @@ class AutomationBattleFrontier {
   /**
    * @brief Runs one extra Battle Frontier-only game tick.
    *
-   * Combat and stage timer are intentionally processed
-   * together so high speed multipliers remain balanced.
+   * Combat and timer remain synchronized.
    */
   static __internal__runVirtualBattleFrontierTick() {
     /*
-     * =====================================================
      * Battle
-     * =====================================================
      */
-
     BattleFrontierBattle.counter += GameConstants.TICK_TIME;
 
     if (BattleFrontierBattle.counter >= GameConstants.BATTLE_FRONTIER_TICK) {
@@ -600,17 +563,8 @@ class AutomationBattleFrontier {
     }
 
     /*
-     * =====================================================
-     * Stage Timer
-     * =====================================================
-     *
-     * This happens after the battle tick.
-     *
-     * Therefore, if the fight completes a stage,
-     * Pokéclicker has already reset the stage timer
-     * before this tick is processed.
+     * Stage timer
      */
-
     BattleFrontierRunner.tick();
   }
 
