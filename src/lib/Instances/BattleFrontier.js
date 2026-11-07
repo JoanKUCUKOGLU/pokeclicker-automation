@@ -23,7 +23,12 @@ class AutomationBattleFrontier {
 
     this.__internal__patchBattleFrontier();
 
-    setInterval(this.__internal__updateDivVisibility.bind(this), 200);
+    if (this.__internal__visibilityLoop === null) {
+      this.__internal__visibilityLoop = setInterval(
+        this.__internal__updateDivVisibility.bind(this),
+        200,
+      );
+    }
 
     this.__internal__updateDivVisibility();
   }
@@ -39,13 +44,14 @@ class AutomationBattleFrontier {
     \*********************************************************************/
 
   static __internal__panel = null;
+  static __internal__visibilityLoop = null;
   static __internal__patched = false;
 
   static __internal__originalPokemonAttack = null;
   static __internal__originalRunnerTick = null;
 
   /**
-   * @brief Builds the speed selector.
+   * @brief Builds the Battle Frontier speed selector.
    */
   static __internal__buildMenu() {
     const title =
@@ -64,6 +70,7 @@ class AutomationBattleFrontier {
     const settingContainer = document.createElement("div");
     settingContainer.style.paddingLeft = "10px";
     settingContainer.style.paddingRight = "10px";
+    settingContainer.style.paddingBottom = "6px";
     settingContainer.style.display = "flex";
     settingContainer.style.alignItems = "center";
     settingContainer.style.gap = "8px";
@@ -77,23 +84,24 @@ class AutomationBattleFrontier {
         "x1 = normal speed\n" +
         "x2 = double speed\n" +
         "x4 = quadruple speed\n" +
+        "x10 = ten times speed\n" +
+        "x100 = one hundred times speed\n" +
         "This does not start, restart or stop the Battle Frontier.",
     );
+
     settingContainer.appendChild(label);
 
     const speedSelect = Automation.Menu.createDropDownListElement(
       "BattleFrontier-SpeedMultiplier-Select",
     );
 
-    speedSelect.style.width = "80px";
+    speedSelect.style.width = "90px";
     speedSelect.style.marginTop = "0px";
 
-    for (const multiplier of [1, 2, 4]) {
+    for (const multiplier of [1, 2, 4, 10, 100]) {
       const option = document.createElement("option");
-
       option.value = multiplier.toString();
       option.textContent = `x${multiplier}`;
-
       speedSelect.appendChild(option);
     }
 
@@ -102,7 +110,9 @@ class AutomationBattleFrontier {
     speedSelect.addEventListener("change", function () {
       const multiplier = parseInt(speedSelect.value, 10);
 
-      if (![1, 2, 4].includes(multiplier)) {
+      const allowedMultipliers = [1, 2, 4, 10, 100];
+
+      if (!allowedMultipliers.includes(multiplier)) {
         speedSelect.value = "1";
 
         Automation.Utils.LocalStorage.setValue(
@@ -118,7 +128,10 @@ class AutomationBattleFrontier {
         multiplier.toString(),
       );
 
-      // Reset native limiter so the speed change feels immediate.
+      /*
+       * Reset the native attack limiter so the new
+       * multiplier takes effect immediately.
+       */
       if (typeof BattleFrontierBattle !== "undefined") {
         BattleFrontierBattle.lastPokemonAttack = 0;
       }
@@ -129,7 +142,7 @@ class AutomationBattleFrontier {
   }
 
   /**
-   * @brief Gets the selected BF speed.
+   * @brief Returns the selected Battle Frontier speed multiplier.
    */
   static __internal__getSpeedMultiplier() {
     const multiplier = parseInt(
@@ -137,37 +150,49 @@ class AutomationBattleFrontier {
       10,
     );
 
-    return [1, 2, 4].includes(multiplier) ? multiplier : 1;
+    return [1, 2, 4, 10, 100].includes(multiplier) ? multiplier : 1;
   }
 
   /**
-   * @brief Hooks into native BF attack/timer calls
-   *        without controlling runs.
+   * @brief Hooks into the native Battle Frontier attack and timer methods.
+   *
+   * This does not control runs. It only executes the existing Battle Frontier
+   * logic multiple times per native update when a multiplier above x1 is used.
    */
   static __internal__patchBattleFrontier() {
     if (this.__internal__patched) {
       return;
     }
 
+    if (
+      typeof BattleFrontierBattle === "undefined" ||
+      typeof BattleFrontierRunner === "undefined"
+    ) {
+      return;
+    }
+
     this.__internal__patched = true;
 
     /*
-     * Preserve the method that already exists.
-     *
-     * This means that if another BF script was loaded
-     * before this one and wrapped pokemonAttack(),
-     * its implementation is preserved.
+     * Preserve the implementation that exists at the time
+     * this component initializes.
      */
     this.__internal__originalPokemonAttack = BattleFrontierBattle.pokemonAttack;
 
+    this.__internal__originalRunnerTick = BattleFrontierRunner.tick;
+
+    /*
+     * -----------------------------------------------------
+     * Battle Frontier attacks
+     * -----------------------------------------------------
+     */
     BattleFrontierBattle.pokemonAttack = function (...args) {
       const multiplier =
         AutomationBattleFrontier.__internal__getSpeedMultiplier();
 
       /*
-       * x1
-       *
-       * Completely normal PokéClicker behaviour.
+       * x1:
+       * completely normal Pokéclicker behaviour.
        */
       if (multiplier === 1) {
         return AutomationBattleFrontier.__internal__originalPokemonAttack.apply(
@@ -176,111 +201,82 @@ class AutomationBattleFrontier {
         );
       }
 
+      let result;
+
       /*
-       * First let PokéClicker's normal attack happen.
+       * Simulate several normal Battle Frontier
+       * attack opportunities.
        *
-       * This preserves:
-       * - the native 450ms limiter
-       * - the alternate attack mechanic
-       * - record-stage behaviour
-       */
-      const previousLastAttack = this.lastPokemonAttack;
-
-      const result =
-        AutomationBattleFrontier.__internal__originalPokemonAttack.apply(
-          this,
-          args,
-        );
-
-      /*
-       * If the native attack did not actually occur,
-       * don't generate additional attacks.
-       */
-      if (this.lastPokemonAttack === previousLastAttack) {
-        return result;
-      }
-
-      /*
-       * Native attack = first hit.
+       * We only bypass the native 450 ms limiter.
        *
-       * x2 -> +1 extra hit
-       * x4 -> +3 extra hits
+       * Pokéclicker's normal function still handles:
+       *
+       * - alternate attacks above your record
+       * - damage calculation
+       * - Pokémon defeat
+       * - egg progress
+       * - gems
+       * - stage progression
+       * - generation of the next enemy
        */
-      for (let i = 1; i < multiplier; i++) {
+      for (let i = 0; i < multiplier; i++) {
         if (!BattleFrontierRunner.started()) {
           break;
         }
 
-        const enemy = this.enemyPokemon();
-
-        if (!enemy || !enemy.isAlive()) {
+        if (!this.enemyPokemon()?.isAlive()) {
           break;
         }
 
-        enemy.damage(
-          App.game.party.calculatePokemonAttack(
-            enemy.type1,
-            enemy.type2,
-            true,
-            GameConstants.Region.none,
-            false,
-            false,
-            WeatherType.Clear,
-          ),
-        );
+        /*
+         * Pokéclicker normally prevents another
+         * attack for 450 ms.
+         *
+         * Setting this to 0 lets the virtual
+         * accelerated attack go through.
+         */
+        this.lastPokemonAttack = 0;
 
-        if (!enemy.isAlive()) {
-          /*
-           * Keep PokéClicker's native defeat logic.
-           *
-           * This handles:
-           * - gems
-           * - egg progress
-           * - Pokémon switching
-           * - stage progression
-           */
-          this.defeatPokemon();
-        }
+        result =
+          AutomationBattleFrontier.__internal__originalPokemonAttack.apply(
+            this,
+            args,
+          );
       }
 
       return result;
     };
 
     /*
-     * Battle Frontier timer.
+     * -----------------------------------------------------
+     * Battle Frontier timer
+     * -----------------------------------------------------
      */
-    this.__internal__originalRunnerTick = BattleFrontierRunner.tick;
-
     BattleFrontierRunner.tick = function (...args) {
       const multiplier =
         AutomationBattleFrontier.__internal__getSpeedMultiplier();
 
-      /*
-       * Always execute the normal timer tick.
-       */
-      const result =
-        AutomationBattleFrontier.__internal__originalRunnerTick.apply(
-          this,
-          args,
-        );
+      let result;
 
       /*
-       * x1 = normal timer.
+       * Run the original BF timer several times.
+       *
+       * x1   -> 1 tick
+       * x2   -> 2 ticks
+       * x4   -> 4 ticks
+       * x10  -> 10 ticks
+       * x100 -> 100 ticks
+       *
+       * This keeps the timer synchronized with
+       * the accelerated combat instead of simply
+       * multiplying the player's damage.
        */
-      if (multiplier === 1) {
-        return result;
-      }
-
-      /*
-       * x2 -> 1 extra tick
-       * x4 -> 3 extra ticks
-       */
-      for (let i = 1; i < multiplier; i++) {
+      for (let i = 0; i < multiplier; i++) {
         if (!this.started()) {
           break;
         }
 
-        AutomationBattleFrontier.__internal__originalRunnerTick.apply(
+        result = AutomationBattleFrontier.__internal__originalRunnerTick.apply(
           this,
           args,
         );
@@ -291,12 +287,13 @@ class AutomationBattleFrontier {
   }
 
   /**
-   * @brief Shows the speed selector while inside the BF.
+   * @brief Shows the speed selector only while inside
+   *        the Battle Frontier.
    *
-   * Leaving the BF does NOT reset the selected speed.
+   * Leaving the BF does NOT reset the selected multiplier.
    *
-   * If x4 is selected, another script can restart the
-   * Battle Frontier later and x4 will still be active.
+   * If another script starts a Battle Frontier run later,
+   * the selected speed will automatically apply again.
    */
   static __internal__updateDivVisibility() {
     if (this.__internal__panel === null) {
