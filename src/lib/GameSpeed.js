@@ -99,7 +99,7 @@ class AutomationGameSpeed {
     this.__internal__addSpeedSelector(
       "Routes",
       this.Settings.Routes,
-      [1, 2, 4, 10],
+      [1, 2, 4, 10, 100],
       "Accelerates route battles only.",
       panelContainer,
     );
@@ -110,7 +110,7 @@ class AutomationGameSpeed {
     this.__internal__addSpeedSelector(
       "Gyms",
       this.Settings.Gyms,
-      [1, 2, 4, 10],
+      [1, 2, 4, 10, 100],
       "Accelerates gym combat and the gym timer together.",
       panelContainer,
     );
@@ -121,7 +121,7 @@ class AutomationGameSpeed {
     this.__internal__addSpeedSelector(
       "Dungeon",
       this.Settings.DungeonBattles,
-      [1, 2, 4, 10],
+      [1, 2, 4, 10, 100],
       "Accelerates dungeon battles only. Dungeon movement and exploration stay at normal speed.",
       panelContainer,
     );
@@ -132,7 +132,7 @@ class AutomationGameSpeed {
     this.__internal__addSpeedSelector(
       "Temporary",
       this.Settings.TemporaryBattles,
-      [1, 2, 4, 10],
+      [1, 2, 4, 10, 100],
       "Accelerates all Temporary Battles. Combat and the battle timer are accelerated together.",
       panelContainer,
     );
