@@ -1,26 +1,16 @@
 /**
- * @class Centralized battle speed modifiers.
+ * @class Centralized game speed modifiers.
  *
- * This component only accelerates selected battle simulations:
+ * Available speeds for every category:
+ * x1 / x2 / x4 / x10 / x100
  *
- * - Route battles:
- *   x1 / x2 / x4 / x10
- *
- * - Gym battles:
- *   x1 / x2 / x4 / x10
- *
- * - Dungeon battles:
- *   x1 / x2 / x4 / x10
- *   Only combat is accelerated.
- *   Movement and dungeon timer remain at normal speed.
- *
- * - Temporary Battles:
- *   x1 / x2 / x4 / x10
- *   All Temporary Battles are accelerated.
- *   Combat and battle timer are accelerated together.
- *
- * - Battle Frontier:
- *   x1 / x2 / x4 / x10 / x100
+ * - Route battles
+ * - Gym battles
+ * - Dungeon battles (combat only; movement/timer stay x1)
+ * - Temporary Battles
+ * - Battle Frontier
+ * - Underground
+ * - Farm
  */
 class AutomationGameSpeed {
   static Settings = {
@@ -29,28 +19,17 @@ class AutomationGameSpeed {
     DungeonBattles: "GameSpeed-DungeonBattles",
     TemporaryBattles: "GameSpeed-TemporaryBattles",
     BattleFrontier: "GameSpeed-BattleFrontier",
+    Underground: "GameSpeed-Underground",
+    Farm: "GameSpeed-Farm",
   };
+
+  static Multipliers = [1, 2, 4, 10, 100];
 
   static initialize(initStep) {
     if (initStep == Automation.InitSteps.BuildMenu) {
-      Automation.Utils.LocalStorage.setDefaultValue(this.Settings.Routes, "1");
-
-      Automation.Utils.LocalStorage.setDefaultValue(this.Settings.Gyms, "1");
-
-      Automation.Utils.LocalStorage.setDefaultValue(
-        this.Settings.DungeonBattles,
-        "1",
-      );
-
-      Automation.Utils.LocalStorage.setDefaultValue(
-        this.Settings.TemporaryBattles,
-        "1",
-      );
-
-      Automation.Utils.LocalStorage.setDefaultValue(
-        this.Settings.BattleFrontier,
-        "1",
-      );
+      for (const setting of Object.values(this.Settings)) {
+        Automation.Utils.LocalStorage.setDefaultValue(setting, "1");
+      }
 
       this.__internal__buildMenu();
       return;
@@ -93,58 +72,52 @@ class AutomationGameSpeed {
 
     panelContainer.style.paddingBottom = "4px";
 
-    /*
-     * Routes
-     */
     this.__internal__addSpeedSelector(
       "Routes",
       this.Settings.Routes,
-      [1, 2, 4, 10, 100],
-      "Accelerates route battles only.",
+      "Accelerates route battles.",
       panelContainer,
     );
 
-    /*
-     * Gyms
-     */
     this.__internal__addSpeedSelector(
       "Gyms",
       this.Settings.Gyms,
-      [1, 2, 4, 10, 100],
       "Accelerates gym combat and the gym timer together.",
       panelContainer,
     );
 
-    /*
-     * Dungeon combat
-     */
     this.__internal__addSpeedSelector(
       "Dungeon",
       this.Settings.DungeonBattles,
-      [1, 2, 4, 10, 100],
-      "Accelerates dungeon battles only. Dungeon movement and exploration stay at normal speed.",
+      "Accelerates dungeon battles only. Dungeon movement and exploration timer remain at normal speed.",
       panelContainer,
     );
 
-    /*
-     * All Temporary Battles
-     */
     this.__internal__addSpeedSelector(
       "Temporary",
       this.Settings.TemporaryBattles,
-      [1, 2, 4, 10, 100],
-      "Accelerates all Temporary Battles. Combat and the battle timer are accelerated together.",
+      "Accelerates all Temporary Battles. Combat and battle timer are accelerated together.",
       panelContainer,
     );
 
-    /*
-     * Battle Frontier
-     */
     this.__internal__addSpeedSelector(
       "Frontier",
       this.Settings.BattleFrontier,
-      [1, 2, 4, 10, 100],
       "Accelerates Battle Frontier combat and its stage timer together.",
+      panelContainer,
+    );
+
+    this.__internal__addSpeedSelector(
+      "Underground",
+      this.Settings.Underground,
+      "Accelerates native Underground time: mine discovery, helpers, tool recovery and battery.",
+      panelContainer,
+    );
+
+    this.__internal__addSpeedSelector(
+      "Farm",
+      this.Settings.Farm,
+      "Accelerates native Farm time: berry growth, mutations, wanderers, farm hands and mulch timers.",
       panelContainer,
     );
   }
@@ -152,27 +125,12 @@ class AutomationGameSpeed {
   /**
    * @brief Adds one compact speed selector row.
    */
-  static __internal__addSpeedSelector(
-    label,
-    setting,
-    multipliers,
-    tooltip,
-    containingDiv,
-  ) {
+  static __internal__addSpeedSelector(label, setting, tooltip, containingDiv) {
     const container = document.createElement("div");
 
-    /*
-     * Compact two-column layout.
-     *
-     * Routes       [ x10 ]
-     * Gyms         [ x10 ]
-     * Dungeon      [ x10 ]
-     * Temporary    [ x10 ]
-     * Frontier     [ x100]
-     */
     container.style.display = "grid";
 
-    container.style.gridTemplateColumns = "1fr 64px";
+    container.style.gridTemplateColumns = "1fr 68px";
 
     container.style.alignItems = "center";
 
@@ -214,11 +172,11 @@ class AutomationGameSpeed {
       `${setting}-Select`,
     );
 
-    select.style.width = "64px";
+    select.style.width = "68px";
 
-    select.style.minWidth = "64px";
+    select.style.minWidth = "68px";
 
-    select.style.maxWidth = "64px";
+    select.style.maxWidth = "68px";
 
     select.style.margin = "0";
 
@@ -232,7 +190,7 @@ class AutomationGameSpeed {
 
     select.style.justifySelf = "end";
 
-    for (const multiplier of multipliers) {
+    for (const multiplier of this.Multipliers) {
       const option = document.createElement("option");
 
       option.value = multiplier.toString();
@@ -242,15 +200,12 @@ class AutomationGameSpeed {
       select.appendChild(option);
     }
 
-    select.value = this.__internal__getMultiplier(
-      setting,
-      multipliers,
-    ).toString();
+    select.value = this.__internal__getMultiplier(setting).toString();
 
     select.addEventListener("change", function () {
       let multiplier = parseInt(select.value, 10);
 
-      if (!multipliers.includes(multiplier)) {
+      if (!AutomationGameSpeed.Multipliers.includes(multiplier)) {
         multiplier = 1;
         select.value = "1";
       }
@@ -278,42 +233,41 @@ class AutomationGameSpeed {
   /**
    * @brief Reads and validates a multiplier.
    */
-  static __internal__getMultiplier(setting, allowedMultipliers) {
+  static __internal__getMultiplier(setting) {
     const multiplier = parseInt(
       Automation.Utils.LocalStorage.getValue(setting),
       10,
     );
 
-    return allowedMultipliers.includes(multiplier) ? multiplier : 1;
+    return this.Multipliers.includes(multiplier) ? multiplier : 1;
   }
 
   static __internal__getRouteMultiplier() {
-    return this.__internal__getMultiplier(this.Settings.Routes, [1, 2, 4, 10, 100]);
+    return this.__internal__getMultiplier(this.Settings.Routes);
   }
 
   static __internal__getGymMultiplier() {
-    return this.__internal__getMultiplier(this.Settings.Gyms, [1, 2, 4, 10, 100]);
+    return this.__internal__getMultiplier(this.Settings.Gyms);
   }
 
   static __internal__getDungeonBattleMultiplier() {
-    return this.__internal__getMultiplier(
-      this.Settings.DungeonBattles,
-      [1, 2, 4, 10, 100],
-    );
+    return this.__internal__getMultiplier(this.Settings.DungeonBattles);
   }
 
   static __internal__getTemporaryBattleMultiplier() {
-    return this.__internal__getMultiplier(
-      this.Settings.TemporaryBattles,
-      [1, 2, 4, 10, 100],
-    );
+    return this.__internal__getMultiplier(this.Settings.TemporaryBattles);
   }
 
   static __internal__getBattleFrontierMultiplier() {
-    return this.__internal__getMultiplier(
-      this.Settings.BattleFrontier,
-      [1, 2, 4, 10, 100],
-    );
+    return this.__internal__getMultiplier(this.Settings.BattleFrontier);
+  }
+
+  static __internal__getUndergroundMultiplier() {
+    return this.__internal__getMultiplier(this.Settings.Underground);
+  }
+
+  static __internal__getFarmMultiplier() {
+    return this.__internal__getMultiplier(this.Settings.Farm);
   }
 
   /**
@@ -420,9 +374,8 @@ class AutomationGameSpeed {
    * @brief Patches the game's main tick once.
    *
    * The original game tick still runs exactly once.
-   *
-   * Additional ticks are only executed for
-   * the selected battle system.
+   * Additional updates are executed only for
+   * the selected systems.
    */
   static __internal__patchGameTick() {
     if (this.__internal__patchedGameTick) {
@@ -438,10 +391,6 @@ class AutomationGameSpeed {
     this.__internal__originalGameTick = App.game.gameTick;
 
     App.game.gameTick = function (...args) {
-      /*
-       * Remember which state the native tick
-       * started in.
-       */
       const stateBeforeTick = this.gameState;
 
       const battleFrontierMultiplier =
@@ -453,8 +402,7 @@ class AutomationGameSpeed {
         battleFrontierMultiplier > 1;
 
       /*
-       * Maintain Battle Frontier's
-       * accelerated virtual clock.
+       * Battle Frontier virtual clock.
        */
       if (acceleratingBattleFrontier) {
         if (!AutomationGameSpeed.__internal__battleFrontierWasAccelerated) {
@@ -472,136 +420,168 @@ class AutomationGameSpeed {
       }
 
       /*
-       * Always run Pokéclicker's normal
-       * game tick once.
+       * Always execute Pokéclicker's
+       * normal game tick once.
        */
       const result = AutomationGameSpeed.__internal__originalGameTick.apply(
         this,
         args,
       );
 
-      switch (stateBeforeTick) {
-        /*
-         * =================================================
-         * Routes
-         * =================================================
-         */
-        case GameConstants.GameState.fighting: {
-          const multiplier =
-            AutomationGameSpeed.__internal__getRouteMultiplier();
+      /*
+       * =====================================================
+       * Route Battles
+       * =====================================================
+       */
+      if (stateBeforeTick === GameConstants.GameState.fighting) {
+        const multiplier = AutomationGameSpeed.__internal__getRouteMultiplier();
 
-          for (let i = 1; i < multiplier; i++) {
-            if (this.gameState !== GameConstants.GameState.fighting) {
-              break;
-            }
-
-            AutomationGameSpeed.__internal__runRouteBattleTick();
+        for (let i = 1; i < multiplier; i++) {
+          if (this.gameState !== GameConstants.GameState.fighting) {
+            break;
           }
 
-          break;
+          AutomationGameSpeed.__internal__runRouteBattleTick();
         }
+      }
 
-        /*
-         * =================================================
-         * Gyms
-         * =================================================
-         */
-        case GameConstants.GameState.gym: {
-          const multiplier = AutomationGameSpeed.__internal__getGymMultiplier();
+      /*
+       * =====================================================
+       * Gyms
+       * =====================================================
+       */
+      if (stateBeforeTick === GameConstants.GameState.gym) {
+        const multiplier = AutomationGameSpeed.__internal__getGymMultiplier();
 
-          for (let i = 1; i < multiplier; i++) {
-            if (
-              this.gameState !== GameConstants.GameState.gym ||
-              !GymRunner.running()
-            ) {
-              break;
-            }
-
-            AutomationGameSpeed.__internal__runGymTick();
+        for (let i = 1; i < multiplier; i++) {
+          if (
+            this.gameState !== GameConstants.GameState.gym ||
+            !GymRunner.running()
+          ) {
+            break;
           }
 
-          break;
+          AutomationGameSpeed.__internal__runGymTick();
         }
+      }
+
+      /*
+       * =====================================================
+       * Dungeon Battles
+       * =====================================================
+       */
+      if (stateBeforeTick === GameConstants.GameState.dungeon) {
+        const multiplier =
+          AutomationGameSpeed.__internal__getDungeonBattleMultiplier();
 
         /*
-         * =================================================
-         * Dungeon battles
-         * =================================================
+         * Dungeon combat only.
+         *
+         * Movement and dungeon exploration
+         * timer stay at x1.
          */
-        case GameConstants.GameState.dungeon: {
-          const multiplier =
-            AutomationGameSpeed.__internal__getDungeonBattleMultiplier();
-
-          /*
-           * ONLY combat is accelerated.
-           *
-           * DungeonRunner.tick() is deliberately
-           * not executed again.
-           *
-           * Movement, exploration and dungeon
-           * timer therefore remain x1.
-           */
-          for (let i = 1; i < multiplier; i++) {
-            if (
-              this.gameState !== GameConstants.GameState.dungeon ||
-              !DungeonRunner.fighting()
-            ) {
-              break;
-            }
-
-            AutomationGameSpeed.__internal__runDungeonBattleTick();
+        for (let i = 1; i < multiplier; i++) {
+          if (
+            this.gameState !== GameConstants.GameState.dungeon ||
+            !DungeonRunner.fighting()
+          ) {
+            break;
           }
 
-          break;
+          AutomationGameSpeed.__internal__runDungeonBattleTick();
         }
+      }
 
-        /*
-         * =================================================
-         * Temporary Battles
-         * =================================================
-         */
-        case GameConstants.GameState.temporaryBattle: {
-          const multiplier =
-            AutomationGameSpeed.__internal__getTemporaryBattleMultiplier();
+      /*
+       * =====================================================
+       * Temporary Battles
+       * =====================================================
+       */
+      if (stateBeforeTick === GameConstants.GameState.temporaryBattle) {
+        const multiplier =
+          AutomationGameSpeed.__internal__getTemporaryBattleMultiplier();
 
-          /*
-           * ALL Temporary Battles are accelerated.
-           *
-           * Both combat and battle timer are
-           * accelerated together.
-           */
-          for (let i = 1; i < multiplier; i++) {
-            if (this.gameState !== GameConstants.GameState.temporaryBattle) {
-              break;
-            }
-
-            AutomationGameSpeed.__internal__runTemporaryBattleTick();
+        for (let i = 1; i < multiplier; i++) {
+          if (this.gameState !== GameConstants.GameState.temporaryBattle) {
+            break;
           }
 
-          break;
+          AutomationGameSpeed.__internal__runTemporaryBattleTick();
         }
+      }
 
-        /*
-         * =================================================
-         * Battle Frontier
-         * =================================================
-         */
-        case GameConstants.GameState.battleFrontier: {
-          for (let i = 1; i < battleFrontierMultiplier; i++) {
-            if (
-              this.gameState !== GameConstants.GameState.battleFrontier ||
-              !BattleFrontierRunner.started()
-            ) {
-              break;
-            }
-
-            AutomationGameSpeed.__internal__battleFrontierVirtualTime +=
-              GameConstants.TICK_TIME;
-
-            AutomationGameSpeed.__internal__runBattleFrontierTick();
+      /*
+       * =====================================================
+       * Battle Frontier
+       * =====================================================
+       */
+      if (stateBeforeTick === GameConstants.GameState.battleFrontier) {
+        for (let i = 1; i < battleFrontierMultiplier; i++) {
+          if (
+            this.gameState !== GameConstants.GameState.battleFrontier ||
+            !BattleFrontierRunner.started()
+          ) {
+            break;
           }
 
-          break;
+          AutomationGameSpeed.__internal__battleFrontierVirtualTime +=
+            GameConstants.TICK_TIME;
+
+          AutomationGameSpeed.__internal__runBattleFrontierTick();
+        }
+      }
+
+      /*
+       * =====================================================
+       * Underground
+       * =====================================================
+       *
+       * The original game tick already executes
+       * underground.update() once.
+       *
+       * Extra calls accelerate:
+       *
+       * - Mine discovery
+       * - Helpers
+       * - Tool recovery
+       * - Battery
+       */
+      const undergroundMultiplier =
+        AutomationGameSpeed.__internal__getUndergroundMultiplier();
+
+      if (undergroundMultiplier > 1 && this.underground.canAccess()) {
+        const delta = GameConstants.TICK_TIME / GameConstants.SECOND;
+
+        for (let i = 1; i < undergroundMultiplier; i++) {
+          this.underground.update(delta);
+        }
+      }
+
+      /*
+       * =====================================================
+       * Farm
+       * =====================================================
+       *
+       * The original game tick already executes
+       * farming.update() once.
+       *
+       * Extra updates accelerate:
+       *
+       * - Berry growth
+       * - Withering
+       * - Mutations
+       * - Wanderers
+       * - Farm Hands
+       * - Mulch timers
+       */
+      const farmMultiplier =
+        AutomationGameSpeed.__internal__getFarmMultiplier();
+
+      if (farmMultiplier > 1) {
+        const delta = GameConstants.TICK_TIME / GameConstants.SECOND;
+
+        for (let i = 1; i < farmMultiplier; i++) {
+          this.farming.update(delta);
         }
       }
 
@@ -610,7 +590,7 @@ class AutomationGameSpeed {
   }
 
   /**
-   * @brief Runs one extra route-battle-only tick.
+   * @brief Runs one extra route battle tick.
    */
   static __internal__runRouteBattleTick() {
     Battle.counter += GameConstants.TICK_TIME;
@@ -622,8 +602,6 @@ class AutomationGameSpeed {
 
   /**
    * @brief Runs one extra complete gym tick.
-   *
-   * Combat and gym timer are accelerated together.
    */
   static __internal__runGymTick() {
     GymBattle.counter += GameConstants.TICK_TIME;
@@ -643,8 +621,7 @@ class AutomationGameSpeed {
   /**
    * @brief Runs one extra dungeon combat tick.
    *
-   * Dungeon movement and timer
-   * remain at normal speed.
+   * Movement and dungeon timer stay at x1.
    */
   static __internal__runDungeonBattleTick() {
     DungeonBattle.counter += GameConstants.TICK_TIME;
@@ -656,11 +633,6 @@ class AutomationGameSpeed {
 
   /**
    * @brief Runs one extra complete Temporary Battle tick.
-   *
-   * Applies to every Temporary Battle.
-   *
-   * Combat and timer are accelerated together,
-   * matching Pokéclicker's native update order.
    */
   static __internal__runTemporaryBattleTick() {
     TemporaryBattleBattle.counter += GameConstants.TICK_TIME;
@@ -669,10 +641,6 @@ class AutomationGameSpeed {
       TemporaryBattleBattle.tick();
     }
 
-    /*
-     * The battle may have ended and changed
-     * game state during TemporaryBattleBattle.tick().
-     */
     if (App.game.gameState === GameConstants.GameState.temporaryBattle) {
       TemporaryBattleRunner.tick();
     }
@@ -680,8 +648,6 @@ class AutomationGameSpeed {
 
   /**
    * @brief Runs one extra complete Battle Frontier tick.
-   *
-   * Combat and stage timer stay synchronized.
    */
   static __internal__runBattleFrontierTick() {
     BattleFrontierBattle.counter += GameConstants.TICK_TIME;
