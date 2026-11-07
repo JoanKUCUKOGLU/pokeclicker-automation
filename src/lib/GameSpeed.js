@@ -288,24 +288,24 @@ class AutomationGameSpeed {
   }
 
   static __internal__getRouteMultiplier() {
-    return this.__internal__getMultiplier(this.Settings.Routes, [1, 2, 4, 10]);
+    return this.__internal__getMultiplier(this.Settings.Routes, [1, 2, 4, 10, 100]);
   }
 
   static __internal__getGymMultiplier() {
-    return this.__internal__getMultiplier(this.Settings.Gyms, [1, 2, 4, 10]);
+    return this.__internal__getMultiplier(this.Settings.Gyms, [1, 2, 4, 10, 100]);
   }
 
   static __internal__getDungeonBattleMultiplier() {
     return this.__internal__getMultiplier(
       this.Settings.DungeonBattles,
-      [1, 2, 4, 10],
+      [1, 2, 4, 10, 100],
     );
   }
 
   static __internal__getTemporaryBattleMultiplier() {
     return this.__internal__getMultiplier(
       this.Settings.TemporaryBattles,
-      [1, 2, 4, 10],
+      [1, 2, 4, 10, 100],
     );
   }
 
