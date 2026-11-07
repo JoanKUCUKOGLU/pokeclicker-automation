@@ -47,8 +47,12 @@ class AutomationBattleFrontier {
   static __internal__visibilityLoop = null;
   static __internal__patched = false;
 
+  static __internal__originalGameTick = null;
   static __internal__originalPokemonAttack = null;
-  static __internal__originalRunnerTick = null;
+
+  static __internal__virtualTime = 0;
+  static __internal__lastVirtualPokemonAttack = -Infinity;
+  static __internal__frontierWasRunning = false;
 
   /**
    * @brief Builds the Battle Frontier speed selector.
@@ -78,6 +82,7 @@ class AutomationBattleFrontier {
     const label = document.createElement("span");
     label.innerText = "Speed :";
     label.classList.add("hasAutomationTooltip");
+
     label.setAttribute(
       "automation-tooltip-text",
       "Changes only the Battle Frontier simulation speed.\n" +
@@ -100,8 +105,10 @@ class AutomationBattleFrontier {
 
     for (const multiplier of [1, 2, 4, 10, 100]) {
       const option = document.createElement("option");
+
       option.value = multiplier.toString();
       option.textContent = `x${multiplier}`;
+
       speedSelect.appendChild(option);
     }
 
@@ -115,26 +122,12 @@ class AutomationBattleFrontier {
       if (!allowedMultipliers.includes(multiplier)) {
         speedSelect.value = "1";
 
-        Automation.Utils.LocalStorage.setValue(
-          AutomationBattleFrontier.Settings.SpeedMultiplier,
-          "1",
-        );
+        AutomationBattleFrontier.__internal__setSpeedMultiplier(1);
 
         return;
       }
 
-      Automation.Utils.LocalStorage.setValue(
-        AutomationBattleFrontier.Settings.SpeedMultiplier,
-        multiplier.toString(),
-      );
-
-      /*
-       * Reset the native attack limiter so the new
-       * multiplier takes effect immediately.
-       */
-      if (typeof BattleFrontierBattle !== "undefined") {
-        BattleFrontierBattle.lastPokemonAttack = 0;
-      }
+      AutomationBattleFrontier.__internal__setSpeedMultiplier(multiplier);
     });
 
     settingContainer.appendChild(speedSelect);
@@ -154,10 +147,41 @@ class AutomationBattleFrontier {
   }
 
   /**
-   * @brief Hooks into the native Battle Frontier attack and timer methods.
+   * @brief Stores a new speed multiplier and resets timing state.
+   */
+  static __internal__setSpeedMultiplier(multiplier) {
+    Automation.Utils.LocalStorage.setValue(
+      this.Settings.SpeedMultiplier,
+      multiplier.toString(),
+    );
+
+    this.__internal__resetVirtualClock();
+
+    /*
+     * Make returning to x1 immediate as well.
+     */
+    if (typeof BattleFrontierBattle !== "undefined") {
+      BattleFrontierBattle.lastPokemonAttack = 0;
+    }
+  }
+
+  /**
+   * @brief Resets the virtual clock used while BF speed > x1.
+   */
+  static __internal__resetVirtualClock() {
+    this.__internal__virtualTime = 0;
+
+    this.__internal__lastVirtualPokemonAttack = -Infinity;
+  }
+
+  /**
+   * @brief Patches only Battle Frontier timing.
    *
-   * This does not control runs. It only executes the existing Battle Frontier
-   * logic multiple times per native update when a multiplier above x1 is used.
+   * The normal game tick still runs once, so every non-BF system remains x1.
+   *
+   * Extra virtual ticks reproduce only the native BF section of Game.gameTick:
+   *
+   * Battle tick -> Runner timer tick.
    */
   static __internal__patchBattleFrontier() {
     if (this.__internal__patched) {
@@ -165,6 +189,8 @@ class AutomationBattleFrontier {
     }
 
     if (
+      typeof App === "undefined" ||
+      !App.game ||
       typeof BattleFrontierBattle === "undefined" ||
       typeof BattleFrontierRunner === "undefined"
     ) {
@@ -174,17 +200,29 @@ class AutomationBattleFrontier {
     this.__internal__patched = true;
 
     /*
-     * Preserve the implementation that exists at the time
-     * this component initializes.
+     * Preserve existing methods.
+     *
+     * If another script was loaded before this one,
+     * its modifications remain part of the stored
+     * function.
      */
+    this.__internal__originalGameTick = App.game.gameTick;
+
     this.__internal__originalPokemonAttack = BattleFrontierBattle.pokemonAttack;
 
-    this.__internal__originalRunnerTick = BattleFrontierRunner.tick;
-
     /*
-     * -----------------------------------------------------
-     * Battle Frontier attacks
-     * -----------------------------------------------------
+     * =====================================================
+     * Battle Frontier Pokémon attack
+     * =====================================================
+     *
+     * Vanilla PokéClicker uses Date.now() and limits
+     * Pokémon attacks to one every 450 ms.
+     *
+     * That does not work for a virtual x100 simulation,
+     * because real time is not moving x100 faster.
+     *
+     * While accelerated, we therefore use our virtual
+     * Battle Frontier clock.
      */
     BattleFrontierBattle.pokemonAttack = function (...args) {
       const multiplier =
@@ -192,7 +230,9 @@ class AutomationBattleFrontier {
 
       /*
        * x1:
-       * completely normal Pokéclicker behaviour.
+       *
+       * Use the original PokéClicker function
+       * completely unchanged.
        */
       if (multiplier === 1) {
         return AutomationBattleFrontier.__internal__originalPokemonAttack.apply(
@@ -201,85 +241,161 @@ class AutomationBattleFrontier {
         );
       }
 
-      let result;
-
       /*
-       * Simulate several normal Battle Frontier
-       * attack opportunities.
+       * Preserve PokéClicker's normal mechanic:
        *
-       * We only bypass the native 450 ms limiter.
-       *
-       * Pokéclicker's normal function still handles:
-       *
-       * - alternate attacks above your record
-       * - damage calculation
-       * - Pokémon defeat
-       * - egg progress
-       * - gems
-       * - stage progression
-       * - generation of the next enemy
+       * If we're pushing beyond our highest completed
+       * stage, Pokémon attack every second attack tick.
        */
-      for (let i = 0; i < multiplier; i++) {
-        if (!BattleFrontierRunner.started()) {
-          break;
-        }
+      this.alternateAttack = !this.alternateAttack;
 
-        if (!this.enemyPokemon()?.isAlive()) {
-          break;
-        }
-
-        /*
-         * Pokéclicker normally prevents another
-         * attack for 450 ms.
-         *
-         * Setting this to 0 lets the virtual
-         * accelerated attack go through.
-         */
-        this.lastPokemonAttack = 0;
-
-        result =
-          AutomationBattleFrontier.__internal__originalPokemonAttack.apply(
-            this,
-            args,
-          );
+      if (
+        this.alternateAttack &&
+        BattleFrontierRunner.stage() >
+          App.game.statistics.battleFrontierHighestStageCompleted()
+      ) {
+        return;
       }
 
-      return result;
+      const now = AutomationBattleFrontier.__internal__virtualTime;
+
+      /*
+       * Native cooldown:
+       *
+       * 450 ms of Battle Frontier simulated time.
+       */
+      if (
+        AutomationBattleFrontier.__internal__lastVirtualPokemonAttack >
+        now - 450
+      ) {
+        return;
+      }
+
+      AutomationBattleFrontier.__internal__lastVirtualPokemonAttack = now;
+
+      if (!this.enemyPokemon()?.isAlive()) {
+        return;
+      }
+
+      /*
+       * Same attack calculation used by the native
+       * BattleFrontierBattle.pokemonAttack().
+       */
+      this.enemyPokemon().damage(
+        App.game.party.calculatePokemonAttack(
+          this.enemyPokemon().type1,
+          this.enemyPokemon().type2,
+          true,
+          GameConstants.Region.none,
+          false,
+          false,
+          WeatherType.Clear,
+        ),
+      );
+
+      if (!this.enemyPokemon().isAlive()) {
+        /*
+         * Keep PokéClicker's native defeat logic:
+         *
+         * - Gems
+         * - Egg progress
+         * - Pokémon index
+         * - Stage progression
+         * - Stage timer reset
+         * - Next Pokémon generation
+         */
+        this.defeatPokemon();
+      }
     };
 
     /*
-     * -----------------------------------------------------
-     * Battle Frontier timer
-     * -----------------------------------------------------
+     * =====================================================
+     * Battle Frontier simulation speed
+     * =====================================================
+     *
+     * We wrap the game's main tick.
+     *
+     * The normal game tick is always executed once,
+     * so everything outside Battle Frontier stays x1.
+     *
+     * Then we simulate additional BF-only ticks.
      */
-    BattleFrontierRunner.tick = function (...args) {
+    App.game.gameTick = function (...args) {
       const multiplier =
         AutomationBattleFrontier.__internal__getSpeedMultiplier();
 
-      let result;
+      const frontierRunning =
+        this.gameState === GameConstants.GameState.battleFrontier &&
+        BattleFrontierRunner.started();
 
       /*
-       * Run the original BF timer several times.
+       * No Battle Frontier running or x1:
        *
-       * x1   -> 1 tick
-       * x2   -> 2 ticks
-       * x4   -> 4 ticks
-       * x10  -> 10 ticks
-       * x100 -> 100 ticks
-       *
-       * This keeps the timer synchronized with
-       * the accelerated combat instead of simply
-       * multiplying the player's damage.
+       * Completely normal game.
        */
-      for (let i = 0; i < multiplier; i++) {
-        if (!this.started()) {
-          break;
+      if (!frontierRunning || multiplier === 1) {
+        if (AutomationBattleFrontier.__internal__frontierWasRunning) {
+          AutomationBattleFrontier.__internal__resetVirtualClock();
+
+          AutomationBattleFrontier.__internal__frontierWasRunning = false;
         }
 
-        result = AutomationBattleFrontier.__internal__originalRunnerTick.apply(
+        return AutomationBattleFrontier.__internal__originalGameTick.apply(
           this,
           args,
         );
+      }
+
+      /*
+       * New accelerated BF session.
+       */
+      if (!AutomationBattleFrontier.__internal__frontierWasRunning) {
+        AutomationBattleFrontier.__internal__resetVirtualClock();
+
+        AutomationBattleFrontier.__internal__frontierWasRunning = true;
+      }
+
+      /*
+       * The normal game tick represents the first
+       * virtual BF tick.
+       */
+      AutomationBattleFrontier.__internal__virtualTime +=
+        GameConstants.TICK_TIME;
+
+      const result =
+        AutomationBattleFrontier.__internal__originalGameTick.apply(this, args);
+
+      /*
+       * Simulate only the extra Battle Frontier ticks.
+       *
+       * x2:
+       *   1 native + 1 virtual
+       *
+       * x4:
+       *   1 native + 3 virtual
+       *
+       * x10:
+       *   1 native + 9 virtual
+       *
+       * x100:
+       *   1 native + 99 virtual
+       */
+      for (let i = 1; i < multiplier; i++) {
+        /*
+         * Another script may have stopped/restarted
+         * the Battle Frontier during a tick.
+         */
+        if (
+          this.gameState !== GameConstants.GameState.battleFrontier ||
+          !BattleFrontierRunner.started()
+        ) {
+          break;
+        }
+
+        AutomationBattleFrontier.__internal__virtualTime +=
+          GameConstants.TICK_TIME;
+
+        AutomationBattleFrontier.__internal__runVirtualBattleFrontierTick();
       }
 
       return result;
@@ -287,13 +403,60 @@ class AutomationBattleFrontier {
   }
 
   /**
+   * @brief Runs one extra Battle Frontier-only game tick.
+   *
+   * This mirrors PokéClicker's native Battle Frontier
+   * section inside Game.gameTick().
+   *
+   * IMPORTANT:
+   *
+   * Combat and timer are executed together.
+   *
+   * This means if the combat completes a stage,
+   * BattleFrontierRunner.nextStage() resets the timer
+   * BEFORE the next virtual timer tick.
+   *
+   * That's what fixes the old x100 balancing issue.
+   */
+  static __internal__runVirtualBattleFrontierTick() {
+    /*
+     * ---------------------------------------------
+     * Battle
+     * ---------------------------------------------
+     */
+
+    BattleFrontierBattle.counter += GameConstants.TICK_TIME;
+
+    if (BattleFrontierBattle.counter >= GameConstants.BATTLE_FRONTIER_TICK) {
+      BattleFrontierBattle.tick();
+    }
+
+    /*
+     * ---------------------------------------------
+     * Stage timer
+     * ---------------------------------------------
+     *
+     * Always AFTER the battle tick, exactly like
+     * PokéClicker's native Game.gameTick().
+     */
+
+    BattleFrontierRunner.tick();
+  }
+
+  /**
    * @brief Shows the speed selector only while inside
    *        the Battle Frontier.
    *
-   * Leaving the BF does NOT reset the selected multiplier.
+   * Leaving the BF does NOT reset the multiplier.
    *
-   * If another script starts a Battle Frontier run later,
-   * the selected speed will automatically apply again.
+   * Your external automation script can therefore:
+   *
+   * - leave BF
+   * - restart BF
+   * - use checkpoints
+   * - reset stages
+   *
+   * and the selected speed will remain active.
    */
   static __internal__updateDivVisibility() {
     if (this.__internal__panel === null) {
