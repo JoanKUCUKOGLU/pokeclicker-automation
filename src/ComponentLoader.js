@@ -27,41 +27,74 @@ class AutomationComponentLoader {
   ) {
     this.__baseUrl = baseUrl;
 
-    // From the least dependant, to the most dependent
+    /*
+     * From the least dependant,
+     * to the most dependent.
+     */
     this.__addScript("src/lib/Focus/Achievements.js");
+
     this.__addScript("src/lib/Focus/Quests.js");
+
     this.__addScript("src/lib/Focus/Shinies.js");
+
     this.__addScript("src/lib/Focus/Roamers.js");
+
     this.__addScript("src/lib/Focus/PokerusCure.js");
+
     this.__addScript("src/lib/Focus/ShadowPurification.js");
+
     this.__addScript("src/lib/Utils/Battle.js");
+
     this.__addScript("src/lib/Utils/Gym.js");
+
     this.__addScript("src/lib/Utils/LocalStorage.js");
+
     this.__addScript("src/lib/Utils/OakItem.js");
+
     this.__addScript("src/lib/Utils/Pokeball.js");
+
     this.__addScript("src/lib/Utils/Route.js");
 
     this.__loadingOrder += 1;
+
     this.__addScript("src/lib/Instances/BattleCafe.js");
+
     this.__addScript("src/lib/Instances/BattleFrontier.js");
+
     this.__addScript("src/lib/Instances/Dungeon.js");
+
     this.__addScript("src/lib/Instances/Gym.js");
+
     this.__addScript("src/lib/Instances/Safari.js");
 
     this.__addScript("src/lib/Click.js");
+
     this.__addScript("src/lib/Farm.js");
+
     this.__addScript("src/lib/Focus.js");
+
     this.__addScript("src/lib/FreeQuests.js");
+
+    this.__addScript("src/lib/GameSpeed.js");
+
     this.__addScript("src/lib/Hatchery.js");
+
     this.__addScript("src/lib/Items.js");
+
     this.__addScript("src/lib/Menu.js");
+
     this.__addScript("src/lib/Notifications.js");
+
     this.__addScript("src/lib/Shop.js");
+
     this.__addScript("src/lib/Trivia.js");
+
     this.__addScript("src/lib/Underground.js");
+
     this.__addScript("src/lib/Utils.js");
 
     this.__loadingOrder += 1;
+
     this.__addScript("src/Automation.js");
 
     this.__setupAutomationRunner(
@@ -83,30 +116,46 @@ class AutomationComponentLoader {
   }
 
   /**
-   * @brief Download the given @p fileRelativePath js file, and loads it into the page as a script component
+   * @brief Download the given @p fileRelativePath js file,
+   *        and loads it into the page as a script component
    *
    * @param {string} fileRelativePath: The file path relative to the @p __baseUrl
    */
   static __loadScript(fileRelativePath) {
     let scriptName = this.__extractNameFromFile(fileRelativePath);
+
     this.__loadingProgressTable[scriptName] = false;
 
-    // Github only serves plain-text so we can't load it as a script object directly
+    /*
+     * Github only serves plain-text so
+     * we can't load it as a script
+     * object directly.
+     */
     let request = new XMLHttpRequest();
+
     request.onreadystatechange = function () {
       if (request.readyState == 4 && request.status == 200) {
-        // Store the content into a script div
+        /*
+         * Store content into
+         * a script div.
+         */
         var script = document.createElement("script");
+
         script.innerHTML = request.responseText;
+
         script.id = "pokeclicker-automation-" + scriptName;
+
         document.head.appendChild(script);
 
         this.__loadingProgressTable[scriptName] = true;
       }
     }.bind(this);
 
-    // Download the content
+    /*
+     * Download content.
+     */
     request.open("GET", this.__baseUrl + fileRelativePath, true);
+
     request.send();
   }
 
@@ -117,19 +166,22 @@ class AutomationComponentLoader {
    */
   static __extractNameFromFile(filePath) {
     let libPrefix = "src/lib/";
+
     if (filePath.startsWith(libPrefix)) {
       let result = filePath.substring(libPrefix.length, filePath.length - 3);
+
       return result.replace("/", "-").toLowerCase();
     }
+
     return filePath.match(/^(.*\/)?([^/]+)\.js$/)[2].toLowerCase();
   }
 
   /**
-   * @brief Sets a loading watcher which prevent loading the automation before the game components are fully up and running.
-   *        Once all scripts are properly loaded, it runs the automation.
+   * @brief Sets a loading watcher which prevent loading the automation
+   *        before the game components are fully up and running.
    *
-   * @param {boolean} disableFeaturesByDefault: True if every features needs to be disabled by default, False otherwise
-   * @param {boolean} disableSettingsByDefault: True if every settings needs to be disabled by default, False otherwise
+   * @param {boolean} disableFeaturesByDefault
+   * @param {boolean} disableSettingsByDefault
    */
   static __setupAutomationRunner(
     disableFeaturesByDefault,
@@ -142,6 +194,7 @@ class AutomationComponentLoader {
         let isLoadingCompleted = Object.keys(this.__loadingProgressTable).every(
           (key) => this.__loadingProgressTable[key],
         );
+
         let isGameStarted =
           App &&
           App.game &&
@@ -152,7 +205,9 @@ class AutomationComponentLoader {
           return;
         }
 
-        // Load the next batch (dependency requirement)
+        /*
+         * Load next dependency batch.
+         */
         if (currentLoadingOrder != this.__loadingOrder) {
           currentLoadingOrder += 1;
 
@@ -167,10 +222,12 @@ class AutomationComponentLoader {
 
         clearInterval(watcher);
 
-        // Start the automation
+        /*
+         * Start automation.
+         */
         Automation.start(disableFeaturesByDefault, disableSettingsByDefault);
       }.bind(this),
       200,
-    ); // Check every 200ms
+    );
   }
 }

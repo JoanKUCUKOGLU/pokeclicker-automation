@@ -8,11 +8,11 @@ class Automation {
   static Dungeon = AutomationDungeon;
   static Gym = AutomationGym;
   static Safari = AutomationSafari;
-
   static Click = AutomationClick;
   static Farm = AutomationFarm;
   static Focus = AutomationFocus;
   static FreeQuests = AutomationFreeQuests;
+  static GameSpeed = AutomationGameSpeed;
   static Hatchery = AutomationHatchery;
   static Items = AutomationItems;
   static Menu = AutomationMenu;
@@ -39,15 +39,21 @@ class Automation {
    */
   static start(disableFeaturesByDefault, disableSettingsByDefault) {
     this.Menu.DisableFeaturesByDefault = disableFeaturesByDefault;
+
     this.Menu.DisableSettingsByDefault = disableSettingsByDefault;
 
     var timer = setInterval(
       function () {
-        // Check if the game window has loaded
+        /*
+         * Check if the game window
+         * has loaded.
+         */
         if (!document.getElementById("game").classList.contains("loading")) {
           clearInterval(timer);
 
-          // Log automation start
+          /*
+           * Log automation start.
+           */
           console.log(
             `[${GameConstants.formatDate(new Date())}] %cStarting automation..`,
             "color:#8e44ad;font-weight:900;",
@@ -57,36 +63,64 @@ class Automation {
             let initStep = this.InitSteps[initKey];
 
             this.Utils.initialize(initStep);
+
             this.Menu.initialize(initStep);
 
-            // Then add the main menu
+            /*
+             * Add main Automation panel.
+             */
             this.Menu.addMainAutomationPanel(initStep);
 
-            // 'Automation' panel
+            /*
+             * Automation panel.
+             */
             this.Click.initialize(initStep);
+
             this.Focus.initialize(initStep);
+
             this.FreeQuests.initialize(initStep);
+
+            this.GameSpeed.initialize(initStep);
+
             this.Hatchery.initialize(initStep);
+
             this.Underground.initialize(initStep);
+
             this.Farm.initialize(initStep);
+
             this.Shop.initialize(initStep);
+
             this.Items.initialize(initStep);
+
             this.Notifications.initialize(initStep);
 
-            // 'Trivia' panel
+            /*
+             * Trivia panel.
+             */
             this.Trivia.initialize(initStep);
 
-            // 'Gym', 'Dungeon', 'Battle Frontier' and 'Safari' instances panels
+            /*
+             * Gym, Dungeon,
+             * Battle Frontier
+             * and Safari panels.
+             */
             this.Gym.initialize(initStep);
+
             this.Dungeon.initialize(initStep);
+
             this.BattleFrontier.initialize(initStep);
+
             this.Safari.initialize(initStep);
 
-            // Floating panel
+            /*
+             * Floating panel.
+             */
             this.BattleCafe.initialize(initStep);
           }
 
-          // Log automation startup completion
+          /*
+           * Log startup completion.
+           */
           console.log(
             `[${GameConstants.formatDate(new Date())}] %cAutomation started`,
             "color:#2ecc71;font-weight:900;",
@@ -94,6 +128,6 @@ class Automation {
         }
       }.bind(this),
       200,
-    ); // Try to instanciate every 0.2s
+    );
   }
 }
