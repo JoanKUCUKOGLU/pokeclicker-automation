@@ -58,19 +58,25 @@ class AutomationGameSpeed {
    * @brief Builds the centralized Game Speed panel.
    */
   static __internal__buildMenu() {
-    const title =
-      '<span style="font-weight:600;">⚡&nbsp;Game Speed&nbsp;⚡</span>';
+    const title = '<span style="font-weight:600;">⚡ Game Speed ⚡</span>';
 
     const panelContainer = Automation.Menu.addCategory(
       "gameSpeedButtons",
       title,
     );
 
+    /*
+     * Small padding so the controls fit nicely
+     * inside the narrow automation sidebar.
+     */
+    panelContainer.style.paddingTop = "4px";
+    panelContainer.style.paddingBottom = "4px";
+
     this.__internal__addSpeedSelector(
       "Routes",
       this.Settings.Routes,
       [1, 2, 4, 10],
-      "Accelerates route battle simulation only.",
+      "Accelerates route battles only.",
       panelContainer,
     );
 
@@ -83,15 +89,15 @@ class AutomationGameSpeed {
     );
 
     this.__internal__addSpeedSelector(
-      "Dungeon battles",
+      "Dungeon",
       this.Settings.DungeonBattles,
       [1, 2, 4, 10],
-      "Accelerates dungeon combat only. Dungeon movement and exploration time stay at normal speed.",
+      "Accelerates dungeon battles only. Dungeon movement and exploration stay at normal speed.",
       panelContainer,
     );
 
     this.__internal__addSpeedSelector(
-      "Battle Frontier",
+      "Frontier",
       this.Settings.BattleFrontier,
       [1, 2, 4, 10, 100],
       "Accelerates Battle Frontier combat and its stage timer together.",
@@ -100,7 +106,7 @@ class AutomationGameSpeed {
   }
 
   /**
-   * @brief Adds one labeled speed dropdown.
+   * @brief Adds one compact speed selector row.
    */
   static __internal__addSpeedSelector(
     label,
@@ -111,17 +117,35 @@ class AutomationGameSpeed {
   ) {
     const container = document.createElement("div");
 
-    container.style.paddingLeft = "10px";
-    container.style.paddingRight = "10px";
-    container.style.paddingBottom = "6px";
-    container.style.display = "flex";
+    /*
+     * Fixed 2-column layout:
+     *
+     * Label       [ x10 ]
+     *
+     * Prevents wrapping even inside the narrow sidebar.
+     */
+    container.style.display = "grid";
+    container.style.gridTemplateColumns = "1fr 64px";
     container.style.alignItems = "center";
-    container.style.justifyContent = "space-between";
-    container.style.gap = "10px";
+    container.style.columnGap = "6px";
+
+    container.style.paddingLeft = "8px";
+    container.style.paddingRight = "8px";
+    container.style.paddingTop = "3px";
+    container.style.paddingBottom = "3px";
+
+    container.style.width = "100%";
+    container.style.boxSizing = "border-box";
 
     const labelElem = document.createElement("span");
 
-    labelElem.innerText = `${label} :`;
+    labelElem.innerText = label;
+
+    labelElem.style.fontSize = "12px";
+    labelElem.style.whiteSpace = "nowrap";
+    labelElem.style.overflow = "hidden";
+    labelElem.style.textOverflow = "ellipsis";
+    labelElem.style.textAlign = "left";
 
     labelElem.classList.add("hasAutomationTooltip");
 
@@ -133,8 +157,22 @@ class AutomationGameSpeed {
       `${setting}-Select`,
     );
 
-    select.style.width = "90px";
-    select.style.marginTop = "0px";
+    /*
+     * Remove the default margins that were causing
+     * the ugly alignment in the previous version.
+     */
+    select.style.width = "64px";
+    select.style.minWidth = "64px";
+    select.style.maxWidth = "64px";
+
+    select.style.margin = "0";
+    select.style.paddingTop = "2px";
+    select.style.paddingBottom = "2px";
+
+    select.style.height = "30px";
+    select.style.fontSize = "12px";
+
+    select.style.justifySelf = "end";
 
     for (const multiplier of multipliers) {
       const option = document.createElement("option");
@@ -219,7 +257,7 @@ class AutomationGameSpeed {
   }
 
   /**
-   * @brief Replaces Battle Frontier's real-time 450 ms attack limiter
+   * @brief Replaces Battle Frontier's real-time attack limiter
    *        with a virtual-time limiter while speed is above x1.
    */
   static __internal__patchBattleFrontierAttack() {
@@ -306,10 +344,6 @@ class AutomationGameSpeed {
 
   /**
    * @brief Patches the game's main tick once.
-   *
-   * The original game tick still runs exactly once every real tick.
-   * We then simulate only the selected battle subsystem additional times.
-   * Everything unrelated to those battles remains at normal speed.
    */
   static __internal__patchGameTick() {
     if (this.__internal__patchedGameTick) {
@@ -342,10 +376,6 @@ class AutomationGameSpeed {
           AutomationGameSpeed.__internal__battleFrontierWasAccelerated = true;
         }
 
-        /*
-         * Normal game tick represents
-         * the first virtual BF tick.
-         */
         AutomationGameSpeed.__internal__battleFrontierVirtualTime +=
           GameConstants.TICK_TIME;
       } else if (AutomationGameSpeed.__internal__battleFrontierWasAccelerated) {
@@ -414,14 +444,8 @@ class AutomationGameSpeed {
           /*
            * ONLY combat is accelerated.
            *
-           * DungeonRunner.tick() is deliberately
+           * DungeonRunner.tick() is intentionally
            * not called here.
-           *
-           * Therefore:
-           *
-           * - movement stays x1
-           * - dungeon timer stays x1
-           * - guides stay x1
            */
           for (let i = 1; i < multiplier; i++) {
             if (
@@ -499,8 +523,8 @@ class AutomationGameSpeed {
   /**
    * @brief Runs one extra dungeon combat tick.
    *
-   * Dungeon movement, guides and dungeon timer
-   * are intentionally untouched.
+   * Dungeon movement and dungeon timer
+   * remain at normal speed.
    */
   static __internal__runDungeonBattleTick() {
     DungeonBattle.counter += GameConstants.TICK_TIME;
@@ -512,8 +536,6 @@ class AutomationGameSpeed {
 
   /**
    * @brief Runs one extra complete Battle Frontier tick.
-   *
-   * Combat and stage timer stay synchronized.
    */
   static __internal__runBattleFrontierTick() {
     BattleFrontierBattle.counter += GameConstants.TICK_TIME;
