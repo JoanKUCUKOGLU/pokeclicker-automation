@@ -1,18 +1,33 @@
 /**
  * @class Centralized battle speed modifiers.
  *
- * This component only accelerates battle simulation:
- * - Route battles: x1 / x2 / x4 / x10
- * - Gym battles: x1 / x2 / x4 / x10
- * - Dungeon battles: x1 / x2 / x4 / x10
- *   (movement and dungeon timer remain at normal speed)
- * - Battle Frontier: x1 / x2 / x4 / x10 / x100
+ * This component only accelerates selected battle simulations:
+ *
+ * - Route battles:
+ *   x1 / x2 / x4 / x10
+ *
+ * - Gym battles:
+ *   x1 / x2 / x4 / x10
+ *
+ * - Dungeon battles:
+ *   x1 / x2 / x4 / x10
+ *   Only combat is accelerated.
+ *   Movement and dungeon timer remain at normal speed.
+ *
+ * - Temporary Battles:
+ *   x1 / x2 / x4 / x10
+ *   All Temporary Battles are accelerated.
+ *   Combat and battle timer are accelerated together.
+ *
+ * - Battle Frontier:
+ *   x1 / x2 / x4 / x10 / x100
  */
 class AutomationGameSpeed {
   static Settings = {
     Routes: "GameSpeed-Routes",
     Gyms: "GameSpeed-Gyms",
     DungeonBattles: "GameSpeed-DungeonBattles",
+    TemporaryBattles: "GameSpeed-TemporaryBattles",
     BattleFrontier: "GameSpeed-BattleFrontier",
   };
 
@@ -24,6 +39,11 @@ class AutomationGameSpeed {
 
       Automation.Utils.LocalStorage.setDefaultValue(
         this.Settings.DungeonBattles,
+        "1",
+      );
+
+      Automation.Utils.LocalStorage.setDefaultValue(
+        this.Settings.TemporaryBattles,
         "1",
       );
 
@@ -45,13 +65,17 @@ class AutomationGameSpeed {
     \*********************************************************************/
 
   static __internal__patchedGameTick = false;
+
   static __internal__patchedBattleFrontierAttack = false;
 
   static __internal__originalGameTick = null;
+
   static __internal__originalBattleFrontierPokemonAttack = null;
 
   static __internal__battleFrontierVirtualTime = 0;
+
   static __internal__battleFrontierLastVirtualPokemonAttack = -Infinity;
+
   static __internal__battleFrontierWasAccelerated = false;
 
   /**
@@ -65,13 +89,13 @@ class AutomationGameSpeed {
       title,
     );
 
-    /*
-     * Small padding so the controls fit nicely
-     * inside the narrow automation sidebar.
-     */
     panelContainer.style.paddingTop = "4px";
+
     panelContainer.style.paddingBottom = "4px";
 
+    /*
+     * Routes
+     */
     this.__internal__addSpeedSelector(
       "Routes",
       this.Settings.Routes,
@@ -80,14 +104,20 @@ class AutomationGameSpeed {
       panelContainer,
     );
 
+    /*
+     * Gyms
+     */
     this.__internal__addSpeedSelector(
       "Gyms",
       this.Settings.Gyms,
       [1, 2, 4, 10],
-      "Accelerates gym battles and the gym timer together.",
+      "Accelerates gym combat and the gym timer together.",
       panelContainer,
     );
 
+    /*
+     * Dungeon combat
+     */
     this.__internal__addSpeedSelector(
       "Dungeon",
       this.Settings.DungeonBattles,
@@ -96,6 +126,20 @@ class AutomationGameSpeed {
       panelContainer,
     );
 
+    /*
+     * All Temporary Battles
+     */
+    this.__internal__addSpeedSelector(
+      "Temporary",
+      this.Settings.TemporaryBattles,
+      [1, 2, 4, 10],
+      "Accelerates all Temporary Battles. Combat and the battle timer are accelerated together.",
+      panelContainer,
+    );
+
+    /*
+     * Battle Frontier
+     */
     this.__internal__addSpeedSelector(
       "Frontier",
       this.Settings.BattleFrontier,
@@ -118,23 +162,32 @@ class AutomationGameSpeed {
     const container = document.createElement("div");
 
     /*
-     * Fixed 2-column layout:
+     * Compact two-column layout.
      *
-     * Label       [ x10 ]
-     *
-     * Prevents wrapping even inside the narrow sidebar.
+     * Routes       [ x10 ]
+     * Gyms         [ x10 ]
+     * Dungeon      [ x10 ]
+     * Temporary    [ x10 ]
+     * Frontier     [ x100]
      */
     container.style.display = "grid";
+
     container.style.gridTemplateColumns = "1fr 64px";
+
     container.style.alignItems = "center";
+
     container.style.columnGap = "6px";
 
     container.style.paddingLeft = "8px";
+
     container.style.paddingRight = "8px";
+
     container.style.paddingTop = "3px";
+
     container.style.paddingBottom = "3px";
 
     container.style.width = "100%";
+
     container.style.boxSizing = "border-box";
 
     const labelElem = document.createElement("span");
@@ -142,9 +195,13 @@ class AutomationGameSpeed {
     labelElem.innerText = label;
 
     labelElem.style.fontSize = "12px";
+
     labelElem.style.whiteSpace = "nowrap";
+
     labelElem.style.overflow = "hidden";
+
     labelElem.style.textOverflow = "ellipsis";
+
     labelElem.style.textAlign = "left";
 
     labelElem.classList.add("hasAutomationTooltip");
@@ -157,19 +214,20 @@ class AutomationGameSpeed {
       `${setting}-Select`,
     );
 
-    /*
-     * Remove the default margins that were causing
-     * the ugly alignment in the previous version.
-     */
     select.style.width = "64px";
+
     select.style.minWidth = "64px";
+
     select.style.maxWidth = "64px";
 
     select.style.margin = "0";
+
     select.style.paddingTop = "2px";
+
     select.style.paddingBottom = "2px";
 
     select.style.height = "30px";
+
     select.style.fontSize = "12px";
 
     select.style.justifySelf = "end";
@@ -199,6 +257,10 @@ class AutomationGameSpeed {
 
       Automation.Utils.LocalStorage.setValue(setting, multiplier.toString());
 
+      /*
+       * Battle Frontier uses its own
+       * virtual attack clock.
+       */
       if (setting === AutomationGameSpeed.Settings.BattleFrontier) {
         AutomationGameSpeed.__internal__resetBattleFrontierVirtualClock();
 
@@ -240,6 +302,13 @@ class AutomationGameSpeed {
     );
   }
 
+  static __internal__getTemporaryBattleMultiplier() {
+    return this.__internal__getMultiplier(
+      this.Settings.TemporaryBattles,
+      [1, 2, 4, 10],
+    );
+  }
+
   static __internal__getBattleFrontierMultiplier() {
     return this.__internal__getMultiplier(
       this.Settings.BattleFrontier,
@@ -248,7 +317,8 @@ class AutomationGameSpeed {
   }
 
   /**
-   * @brief Resets the virtual clock used by the accelerated Battle Frontier.
+   * @brief Resets the virtual clock used by
+   *        the accelerated Battle Frontier.
    */
   static __internal__resetBattleFrontierVirtualClock() {
     this.__internal__battleFrontierVirtualTime = 0;
@@ -257,8 +327,9 @@ class AutomationGameSpeed {
   }
 
   /**
-   * @brief Replaces Battle Frontier's real-time attack limiter
-   *        with a virtual-time limiter while speed is above x1.
+   * @brief Replaces Battle Frontier's real-time
+   *        attack limiter with a virtual-time limiter
+   *        while speed is above x1.
    */
   static __internal__patchBattleFrontierAttack() {
     if (this.__internal__patchedBattleFrontierAttack) {
@@ -281,6 +352,9 @@ class AutomationGameSpeed {
       const multiplier =
         AutomationGameSpeed.__internal__getBattleFrontierMultiplier();
 
+      /*
+       * x1 = completely normal Pokéclicker.
+       */
       if (multiplier === 1) {
         return AutomationGameSpeed.__internal__originalBattleFrontierPokemonAttack.apply(
           this,
@@ -289,8 +363,8 @@ class AutomationGameSpeed {
       }
 
       /*
-       * Same alternate-attack rule as vanilla
-       * Battle Frontier.
+       * Preserve vanilla alternate-attack behavior
+       * above the player's highest completed stage.
        */
       this.alternateAttack = !this.alternateAttack;
 
@@ -305,8 +379,8 @@ class AutomationGameSpeed {
       const now = AutomationGameSpeed.__internal__battleFrontierVirtualTime;
 
       /*
-       * Vanilla BF limits Pokémon attacks
-       * to one every 450 ms.
+       * Vanilla BF attack cooldown:
+       * approximately 450 ms.
        */
       if (
         AutomationGameSpeed.__internal__battleFrontierLastVirtualPokemonAttack >
@@ -344,6 +418,11 @@ class AutomationGameSpeed {
 
   /**
    * @brief Patches the game's main tick once.
+   *
+   * The original game tick still runs exactly once.
+   *
+   * Additional ticks are only executed for
+   * the selected battle system.
    */
   static __internal__patchGameTick() {
     if (this.__internal__patchedGameTick) {
@@ -359,6 +438,10 @@ class AutomationGameSpeed {
     this.__internal__originalGameTick = App.game.gameTick;
 
     App.game.gameTick = function (...args) {
+      /*
+       * Remember which state the native tick
+       * started in.
+       */
       const stateBeforeTick = this.gameState;
 
       const battleFrontierMultiplier =
@@ -369,6 +452,10 @@ class AutomationGameSpeed {
         BattleFrontierRunner.started() &&
         battleFrontierMultiplier > 1;
 
+      /*
+       * Maintain Battle Frontier's
+       * accelerated virtual clock.
+       */
       if (acceleratingBattleFrontier) {
         if (!AutomationGameSpeed.__internal__battleFrontierWasAccelerated) {
           AutomationGameSpeed.__internal__resetBattleFrontierVirtualClock();
@@ -384,6 +471,10 @@ class AutomationGameSpeed {
         AutomationGameSpeed.__internal__battleFrontierWasAccelerated = false;
       }
 
+      /*
+       * Always run Pokéclicker's normal
+       * game tick once.
+       */
       const result = AutomationGameSpeed.__internal__originalGameTick.apply(
         this,
         args,
@@ -444,8 +535,11 @@ class AutomationGameSpeed {
           /*
            * ONLY combat is accelerated.
            *
-           * DungeonRunner.tick() is intentionally
-           * not called here.
+           * DungeonRunner.tick() is deliberately
+           * not executed again.
+           *
+           * Movement, exploration and dungeon
+           * timer therefore remain x1.
            */
           for (let i = 1; i < multiplier; i++) {
             if (
@@ -456,6 +550,32 @@ class AutomationGameSpeed {
             }
 
             AutomationGameSpeed.__internal__runDungeonBattleTick();
+          }
+
+          break;
+        }
+
+        /*
+         * =================================================
+         * Temporary Battles
+         * =================================================
+         */
+        case GameConstants.GameState.temporaryBattle: {
+          const multiplier =
+            AutomationGameSpeed.__internal__getTemporaryBattleMultiplier();
+
+          /*
+           * ALL Temporary Battles are accelerated.
+           *
+           * Both combat and battle timer are
+           * accelerated together.
+           */
+          for (let i = 1; i < multiplier; i++) {
+            if (this.gameState !== GameConstants.GameState.temporaryBattle) {
+              break;
+            }
+
+            AutomationGameSpeed.__internal__runTemporaryBattleTick();
           }
 
           break;
@@ -523,7 +643,7 @@ class AutomationGameSpeed {
   /**
    * @brief Runs one extra dungeon combat tick.
    *
-   * Dungeon movement and dungeon timer
+   * Dungeon movement and timer
    * remain at normal speed.
    */
   static __internal__runDungeonBattleTick() {
@@ -535,7 +655,33 @@ class AutomationGameSpeed {
   }
 
   /**
+   * @brief Runs one extra complete Temporary Battle tick.
+   *
+   * Applies to every Temporary Battle.
+   *
+   * Combat and timer are accelerated together,
+   * matching Pokéclicker's native update order.
+   */
+  static __internal__runTemporaryBattleTick() {
+    TemporaryBattleBattle.counter += GameConstants.TICK_TIME;
+
+    if (TemporaryBattleBattle.counter >= GameConstants.BATTLE_TICK) {
+      TemporaryBattleBattle.tick();
+    }
+
+    /*
+     * The battle may have ended and changed
+     * game state during TemporaryBattleBattle.tick().
+     */
+    if (App.game.gameState === GameConstants.GameState.temporaryBattle) {
+      TemporaryBattleRunner.tick();
+    }
+  }
+
+  /**
    * @brief Runs one extra complete Battle Frontier tick.
+   *
+   * Combat and stage timer stay synchronized.
    */
   static __internal__runBattleFrontierTick() {
     BattleFrontierBattle.counter += GameConstants.TICK_TIME;
