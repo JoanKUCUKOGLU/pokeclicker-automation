@@ -2,10 +2,11 @@
  * @class Battle Frontier automation + speed modifier
  *
  * Features:
- * - Automatically restart the Battle Frontier when a run ends
+ * - Automatically restarts the Battle Frontier when a run ends
  * - Battle Frontier speed: x1 / x2 / x4 / x10 / x100
+ * - Battle Frontier notifications automatically disappear after 5 seconds
  *
- * No max stage, no token farming logic.
+ * No max stage or token farming logic.
  */
 class AutomationBattleFrontier {
   static Settings = {
@@ -13,6 +14,11 @@ class AutomationBattleFrontier {
     SpeedMultiplier: "BattleFrontier-SpeedMultiplier",
   };
 
+  /**
+   * @brief Initializes the Battle Frontier component.
+   *
+   * @param initStep The current automation initialization step
+   */
   static initialize(initStep) {
     if (initStep == Automation.InitSteps.BuildMenu) {
       Automation.Utils.LocalStorage.setDefaultValue(
@@ -24,7 +30,10 @@ class AutomationBattleFrontier {
       return;
     }
 
+    this.__internal__patchBattleFrontierNotifications();
     this.__internal__patchBattleFrontier();
+
+    this.__internal__toggleBattleFrontierFight();
 
     if (this.__internal__visibilityLoop === null) {
       this.__internal__visibilityLoop = setInterval(
@@ -43,8 +52,9 @@ class AutomationBattleFrontier {
     this.__internal__toggleBattleFrontierFight(false);
 
     if (App.game.gameState == GameConstants.GameState.battleFrontier) {
-      BattleFrontierRunner.end();
-      App.game.battleFrontier.leave();
+      if (BattleFrontierRunner.started()) {
+        BattleFrontierRunner.end();
+      }
     }
   }
 
@@ -65,14 +75,17 @@ class AutomationBattleFrontier {
   static __internal__lastVirtualPokemonAttack = -Infinity;
   static __internal__frontierWasRunning = false;
 
+  static __internal__notificationsPatched = false;
+  static __internal__originalNotify = null;
+
   /**
-   * @brief Builds the menu.
+   * @brief Builds the Battle Frontier menu.
    */
   static __internal__buildMenu() {
     const title =
-      '<img src="assets/images/npcs/Crush Kin.png" height="20px" style="position:relative; bottom: 3px; transform: scaleX(-1);">' +
+      '<img src="assets/images/npcs/Crush Kin.png" height="20px" style="position:relative; bottom:3px; transform:scaleX(-1);">' +
       "&nbsp;Battle Frontier&nbsp;" +
-      '<img src="assets/images/npcs/Crush Kin.png" height="20px" style="position:relative; bottom: 3px;">';
+      '<img src="assets/images/npcs/Crush Kin.png" height="20px" style="position:relative; bottom:3px;">';
 
     const panelContainer = Automation.Menu.addCategory(
       "battleFrontierFightButtons",
@@ -92,7 +105,7 @@ class AutomationBattleFrontier {
     const autoRunTooltip =
       "Automatically starts the Battle Frontier again when a run finishes." +
       Automation.Menu.TooltipSeparator +
-      "If a checkpoint exists, it will use the current checkpoint.";
+      "The current Battle Frontier checkpoint will be used when available.";
 
     const autoRunButton = Automation.Menu.addAutomationButton(
       "Auto start",
@@ -119,10 +132,15 @@ class AutomationBattleFrontier {
     const speedContainer = document.createElement("div");
 
     speedContainer.style.paddingLeft = "10px";
+
     speedContainer.style.paddingRight = "10px";
+
     speedContainer.style.paddingBottom = "5px";
+
     speedContainer.style.display = "flex";
+
     speedContainer.style.alignItems = "center";
+
     speedContainer.style.gap = "8px";
 
     const speedLabel = document.createElement("span");
@@ -134,7 +152,7 @@ class AutomationBattleFrontier {
     speedLabel.setAttribute(
       "automation-tooltip-text",
       "Changes only the Battle Frontier simulation speed.\n" +
-        "x1 = normal\n" +
+        "x1 = normal speed\n" +
         "x2 = double speed\n" +
         "x4 = quadruple speed\n" +
         "x10 = ten times speed\n" +
@@ -148,6 +166,7 @@ class AutomationBattleFrontier {
     );
 
     speedSelect.style.width = "90px";
+
     speedSelect.style.marginTop = "0px";
 
     for (const multiplier of [1, 2, 4, 10, 100]) {
@@ -182,9 +201,14 @@ class AutomationBattleFrontier {
   }
 
   /*********************************************************************\
-    |***                     Auto Start                               ***|
+    |***                       Auto Start                              ***|
     \*********************************************************************/
 
+  /**
+   * @brief Enables or disables automatic Battle Frontier restarting.
+   *
+   * @param enable Optional explicit state
+   */
   static __internal__toggleBattleFrontierFight(enable) {
     if (enable !== true && enable !== false) {
       enable =
@@ -199,9 +223,6 @@ class AutomationBattleFrontier {
           500,
         );
 
-        /*
-         * Start immediately.
-         */
         this.__internal__battleFrontierFightLoop(true);
       }
     } else {
@@ -212,30 +233,10 @@ class AutomationBattleFrontier {
   }
 
   /**
-   * @brief Automatically starts a new BF run.
+   * @brief Automatically starts a Battle Frontier run if none is active.
    */
   static __internal__battleFrontierFightLoop(firstRun = false) {
-    if (this.__internal__autoBattleFrontierPanel.hidden) {
-      return;
-    }
-
-    /*
-     * If the player manually quit while having
-     * a checkpoint, consider it a manual action
-     * and disable Auto Start.
-     */
-    if (
-      !BattleFrontierRunner.started() &&
-      BattleFrontierRunner.checkpoint() > 1 &&
-      !firstRun
-    ) {
-      Automation.Notifications.sendWarningNotif(
-        "User action detected, turning off Auto Start",
-        "Battle Frontier",
-      );
-
-      Automation.Menu.forceAutomationState(this.Settings.FeatureEnabled, false);
-
+    if (App.game.gameState !== GameConstants.GameState.battleFrontier) {
       return;
     }
 
@@ -247,15 +248,90 @@ class AutomationBattleFrontier {
     }
 
     /*
-     * Start using the available checkpoint.
+     * Auto start the Battle Frontier.
+     *
+     * true means the current checkpoint
+     * can be used when applicable.
      */
-    BattleFrontierRunner.start(true);
+    try {
+      BattleFrontierRunner.start(true);
+    } catch (error) {
+      /*
+       * The BF may briefly be in a transition state
+       * between the end of one run and the next.
+       */
+      if (!firstRun) {
+        console.debug(
+          "[Pokeclicker Automation] Battle Frontier restart pending:",
+          error,
+        );
+      }
+    }
   }
 
   /*********************************************************************\
-    |***                       Speed                                  ***|
+    |***                  Notification timeout                        ***|
     \*********************************************************************/
 
+  /**
+   * @brief Forces Battle Frontier notifications to disappear
+   *        automatically after 5 seconds.
+   *
+   * Other Pokéclicker notifications are not modified.
+   */
+  static __internal__patchBattleFrontierNotifications() {
+    if (this.__internal__notificationsPatched) {
+      return;
+    }
+
+    if (
+      typeof Notifier === "undefined" ||
+      typeof Notifier.notify !== "function"
+    ) {
+      return;
+    }
+
+    this.__internal__notificationsPatched = true;
+
+    this.__internal__originalNotify = Notifier.notify;
+
+    Notifier.notify = function (options) {
+      try {
+        if (
+          options?.setting ===
+          NotificationConstants.NotificationSetting.General.battle_frontier
+        ) {
+          options = {
+            ...options,
+
+            /*
+             * Battle Frontier notification
+             * disappears after 5 seconds.
+             */
+            timeout: 5 * GameConstants.SECOND,
+          };
+        }
+      } catch (error) {
+        console.debug(
+          "[Pokeclicker Automation] Could not modify Battle Frontier notification timeout:",
+          error,
+        );
+      }
+
+      return AutomationBattleFrontier.__internal__originalNotify.call(
+        this,
+        options,
+      );
+    };
+  }
+
+  /*********************************************************************\
+    |***                       Speed                                   ***|
+    \*********************************************************************/
+
+  /**
+   * @brief Returns the selected Battle Frontier speed multiplier.
+   */
   static __internal__getSpeedMultiplier() {
     const multiplier = parseInt(
       Automation.Utils.LocalStorage.getValue(this.Settings.SpeedMultiplier),
@@ -265,6 +341,9 @@ class AutomationBattleFrontier {
     return [1, 2, 4, 10, 100].includes(multiplier) ? multiplier : 1;
   }
 
+  /**
+   * @brief Changes the Battle Frontier speed multiplier.
+   */
   static __internal__setSpeedMultiplier(multiplier) {
     Automation.Utils.LocalStorage.setValue(
       this.Settings.SpeedMultiplier,
@@ -274,14 +353,17 @@ class AutomationBattleFrontier {
     this.__internal__resetVirtualClock();
 
     /*
-     * Reset native cooldown so switching back
-     * to x1 feels immediate.
+     * Reset native cooldown so switching
+     * speeds feels immediate.
      */
     if (typeof BattleFrontierBattle !== "undefined") {
       BattleFrontierBattle.lastPokemonAttack = 0;
     }
   }
 
+  /**
+   * @brief Resets accelerated Battle Frontier time.
+   */
   static __internal__resetVirtualClock() {
     this.__internal__virtualTime = 0;
 
@@ -307,6 +389,12 @@ class AutomationBattleFrontier {
 
     this.__internal__patched = true;
 
+    /*
+     * Preserve existing implementations.
+     *
+     * This also helps compatibility with scripts
+     * that were loaded before this one.
+     */
     this.__internal__originalGameTick = App.game.gameTick;
 
     this.__internal__originalPokemonAttack = BattleFrontierBattle.pokemonAttack;
@@ -315,18 +403,17 @@ class AutomationBattleFrontier {
      * =====================================================
      * Pokémon attack
      * =====================================================
-     *
-     * x1 uses the original Pokéclicker method.
-     *
-     * Accelerated modes use simulated BF time instead
-     * of Date.now(), otherwise x100 would accelerate
-     * the stage timer much faster than attacks.
      */
 
     BattleFrontierBattle.pokemonAttack = function (...args) {
       const multiplier =
         AutomationBattleFrontier.__internal__getSpeedMultiplier();
 
+      /*
+       * x1:
+       *
+       * Completely normal Pokéclicker behavior.
+       */
       if (multiplier === 1) {
         return AutomationBattleFrontier.__internal__originalPokemonAttack.apply(
           this,
@@ -335,8 +422,8 @@ class AutomationBattleFrontier {
       }
 
       /*
-       * Native Battle Frontier alternate attack
-       * behaviour.
+       * Preserve the native alternate attack behavior
+       * when pushing beyond the player's highest stage.
        */
       this.alternateAttack = !this.alternateAttack;
 
@@ -351,7 +438,13 @@ class AutomationBattleFrontier {
       const now = AutomationBattleFrontier.__internal__virtualTime;
 
       /*
-       * Native BF attack cooldown = 450 ms.
+       * Native Battle Frontier Pokémon attack
+       * cooldown = approximately 450 ms.
+       *
+       * We use virtual BF time instead of real
+       * Date.now(), otherwise high multipliers
+       * would accelerate the timer faster than
+       * the actual attacks.
        */
       if (
         AutomationBattleFrontier.__internal__lastVirtualPokemonAttack >
@@ -381,13 +474,24 @@ class AutomationBattleFrontier {
       );
 
       if (!enemy.isAlive()) {
+        /*
+         * Let Pokéclicker's native Battle Frontier
+         * defeat logic handle:
+         *
+         * - Gems
+         * - Egg progress
+         * - Enemy progression
+         * - Stage progression
+         * - Stage timer reset
+         * - Next Pokémon generation
+         */
         this.defeatPokemon();
       }
     };
 
     /*
      * =====================================================
-     * Game tick
+     * Main Game Tick
      * =====================================================
      */
 
@@ -400,8 +504,13 @@ class AutomationBattleFrontier {
         BattleFrontierRunner.started();
 
       /*
-       * Normal game behaviour outside BF
-       * or when speed = x1.
+       * Outside Battle Frontier:
+       *
+       * completely normal game.
+       *
+       * x1:
+       *
+       * completely normal Battle Frontier.
        */
       if (!frontierRunning || multiplier === 1) {
         if (AutomationBattleFrontier.__internal__frontierWasRunning) {
@@ -417,7 +526,7 @@ class AutomationBattleFrontier {
       }
 
       /*
-       * Beginning of an accelerated BF run.
+       * Beginning of accelerated BF session.
        */
       if (!AutomationBattleFrontier.__internal__frontierWasRunning) {
         AutomationBattleFrontier.__internal__resetVirtualClock();
@@ -426,7 +535,7 @@ class AutomationBattleFrontier {
       }
 
       /*
-       * Native tick.
+       * First tick is the normal game tick.
        */
       AutomationBattleFrontier.__internal__virtualTime +=
         GameConstants.TICK_TIME;
@@ -435,14 +544,25 @@ class AutomationBattleFrontier {
         AutomationBattleFrontier.__internal__originalGameTick.apply(this, args);
 
       /*
-       * Additional simulated BF ticks.
+       * Additional BF-only simulated ticks.
        *
-       * x2   = 1 native + 1 extra
-       * x4   = 1 native + 3 extra
-       * x10  = 1 native + 9 extra
-       * x100 = 1 native + 99 extra
+       * x2:
+       * 1 real + 1 virtual
+       *
+       * x4:
+       * 1 real + 3 virtual
+       *
+       * x10:
+       * 1 real + 9 virtual
+       *
+       * x100:
+       * 1 real + 99 virtual
        */
       for (let i = 1; i < multiplier; i++) {
+        /*
+         * A run may end during one of
+         * the simulated ticks.
+         */
         if (
           this.gameState !== GameConstants.GameState.battleFrontier ||
           !BattleFrontierRunner.started()
@@ -461,14 +581,18 @@ class AutomationBattleFrontier {
   }
 
   /**
-   * @brief Runs one BF-only simulated game tick.
+   * @brief Runs one extra Battle Frontier-only game tick.
    *
-   * Battle and timer stay synchronized.
+   * Combat and stage timer are intentionally processed
+   * together so high speed multipliers remain balanced.
    */
   static __internal__runVirtualBattleFrontierTick() {
     /*
-     * Battle.
+     * =====================================================
+     * Battle
+     * =====================================================
      */
+
     BattleFrontierBattle.counter += GameConstants.TICK_TIME;
 
     if (BattleFrontierBattle.counter >= GameConstants.BATTLE_FRONTIER_TICK) {
@@ -476,17 +600,27 @@ class AutomationBattleFrontier {
     }
 
     /*
-     * Stage timer.
+     * =====================================================
+     * Stage Timer
+     * =====================================================
+     *
+     * This happens after the battle tick.
+     *
+     * Therefore, if the fight completes a stage,
+     * Pokéclicker has already reset the stage timer
+     * before this tick is processed.
      */
+
     BattleFrontierRunner.tick();
   }
 
   /*********************************************************************\
-    |***                       UI                                     ***|
+    |***                          UI                                   ***|
     \*********************************************************************/
 
   /**
-   * @brief Only show the category while inside Battle Frontier.
+   * @brief Shows the category while the player is on
+   *        the Battle Frontier screen.
    */
   static __internal__updateDivVisibilityAndContent() {
     if (this.__internal__autoBattleFrontierPanel === null) {
@@ -495,17 +629,5 @@ class AutomationBattleFrontier {
 
     this.__internal__autoBattleFrontierPanel.hidden =
       App.game.gameState !== GameConstants.GameState.battleFrontier;
-
-    /*
-     * Leaving BF manually disables Auto Start,
-     * but DOES NOT reset the chosen speed.
-     */
-    if (
-      this.__internal__autoBattleFrontierPanel.hidden &&
-      Automation.Utils.LocalStorage.getValue(this.Settings.FeatureEnabled) ===
-        "true"
-    ) {
-      Automation.Menu.forceAutomationState(this.Settings.FeatureEnabled, false);
-    }
   }
 }
