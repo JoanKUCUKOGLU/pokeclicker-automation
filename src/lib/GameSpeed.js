@@ -9,7 +9,6 @@
  * - Dungeon battles (combat only; movement/timer stay x1)
  * - Temporary Battles
  * - Battle Frontier
- * - Safari (movement + Safari battle animations/delays)
  * - Farm
  */
 class AutomationGameSpeed {
@@ -19,7 +18,6 @@ class AutomationGameSpeed {
     DungeonBattles: "GameSpeed-DungeonBattles",
     TemporaryBattles: "GameSpeed-TemporaryBattles",
     BattleFrontier: "GameSpeed-BattleFrontier",
-    Safari: "GameSpeed-Safari",
     Farm: "GameSpeed-Farm",
   };
 
@@ -35,8 +33,6 @@ class AutomationGameSpeed {
       return;
     }
 
-    this.__internal__initializeSafariSpeed();
-    this.__internal__patchSafariAutomationLoop();
     this.__internal__patchBattleFrontierAttack();
     this.__internal__patchGameTick();
   }
@@ -58,14 +54,6 @@ class AutomationGameSpeed {
   static __internal__battleFrontierLastVirtualPokemonAttack = -Infinity;
 
   static __internal__battleFrontierWasAccelerated = false;
-
-  static __internal__safariBaseMoveSpeed = null;
-
-  static __internal__safariBaseBattleSpeeds = null;
-
-  static __internal__safariAutomationPatched = false;
-
-  static __internal__originalSafariAutomationToggle = null;
 
   /**
    * @brief Builds the centralized Game Speed panel.
@@ -114,13 +102,6 @@ class AutomationGameSpeed {
       "Frontier",
       this.Settings.BattleFrontier,
       "Accelerates Battle Frontier combat and its stage timer together.",
-      panelContainer,
-    );
-
-    this.__internal__addSpeedSelector(
-      "Safari",
-      this.Settings.Safari,
-      "Accelerates Safari movement and Safari battle animations/delays. Safari Level speed bonuses still apply.",
       panelContainer,
     );
 
@@ -233,14 +214,6 @@ class AutomationGameSpeed {
           BattleFrontierBattle.lastPokemonAttack = 0;
         }
       }
-
-      /*
-       * Safari uses direct animation
-       * and movement delay modification.
-       */
-      if (setting === AutomationGameSpeed.Settings.Safari) {
-        AutomationGameSpeed.__internal__applySafariSpeed();
-      }
     });
 
     container.appendChild(select);
@@ -280,201 +253,8 @@ class AutomationGameSpeed {
     return this.__internal__getMultiplier(this.Settings.BattleFrontier);
   }
 
-  static __internal__getSafariMultiplier() {
-    return this.__internal__getMultiplier(this.Settings.Safari);
-  }
-
   static __internal__getFarmMultiplier() {
     return this.__internal__getMultiplier(this.Settings.Farm);
-  }
-
-  /*********************************************************************\
-    |***                         Safari                                ***|
-    \*********************************************************************/
-
-  /**
-   * @brief Caches the vanilla Safari timings
-   *        and applies the selected speed.
-   */
-  static __internal__initializeSafariSpeed() {
-    if (
-      typeof Safari === "undefined" ||
-      typeof SafariBattle === "undefined" ||
-      !SafariBattle.Speed
-    ) {
-      return;
-    }
-
-    if (this.__internal__safariBaseMoveSpeed === null) {
-      this.__internal__safariBaseMoveSpeed = Safari.moveSpeed;
-    }
-
-    if (this.__internal__safariBaseBattleSpeeds === null) {
-      this.__internal__safariBaseBattleSpeeds = {
-        ...SafariBattle.Speed,
-      };
-    }
-
-    this.__internal__applySafariSpeed();
-  }
-
-  /**
-   * @brief Returns a Safari delay divided
-   *        by the selected multiplier.
-   *
-   * 5 ms minimum keeps x100 stable and
-   * prevents 0 ms animation/state races.
-   */
-  static __internal__getSafariDelay(baseDelay) {
-    const multiplier = this.__internal__getSafariMultiplier();
-
-    if (multiplier === 1) {
-      return baseDelay;
-    }
-
-    return Math.max(5, baseDelay / multiplier);
-  }
-
-  /**
-   * @brief Applies Safari movement
-   *        and battle speed.
-   */
-  static __internal__applySafariSpeed() {
-    if (
-      typeof Safari === "undefined" ||
-      typeof SafariBattle === "undefined" ||
-      !SafariBattle.Speed
-    ) {
-      return;
-    }
-
-    if (this.__internal__safariBaseMoveSpeed === null) {
-      this.__internal__safariBaseMoveSpeed = Safari.moveSpeed;
-    }
-
-    if (this.__internal__safariBaseBattleSpeeds === null) {
-      this.__internal__safariBaseBattleSpeeds = {
-        ...SafariBattle.Speed,
-      };
-    }
-
-    /*
-     * Player movement.
-     */
-    Safari.moveSpeed = this.__internal__getSafariDelay(
-      this.__internal__safariBaseMoveSpeed,
-    );
-
-    /*
-     * Ball throw, bait, rocks,
-     * capture animation, flee,
-     * turn delays, etc.
-     */
-    for (const [name, baseDelay] of Object.entries(
-      this.__internal__safariBaseBattleSpeeds,
-    )) {
-      SafariBattle.Speed[name] = this.__internal__getSafariDelay(baseDelay);
-    }
-
-    /*
-     * Our Auto Safari normally checks
-     * what to do every 50 ms.
-     *
-     * Retiming it prevents the automation
-     * itself from becoming the bottleneck.
-     */
-    this.__internal__restartSafariAutomationLoop();
-  }
-
-  /**
-   * @brief Patches our Auto Safari toggle
-   *        so newly-started Safari loops
-   *        automatically use the chosen speed.
-   */
-  static __internal__patchSafariAutomationLoop() {
-    if (this.__internal__safariAutomationPatched) {
-      return;
-    }
-
-    let safariAutomation = null;
-
-    if (typeof Automation !== "undefined" && Automation.Safari) {
-      safariAutomation = Automation.Safari;
-    } else if (typeof AutomationSafari !== "undefined") {
-      safariAutomation = AutomationSafari;
-    }
-
-    if (
-      !safariAutomation ||
-      typeof safariAutomation.__internal__toggleSafariAutomation !== "function"
-    ) {
-      return;
-    }
-
-    this.__internal__safariAutomationPatched = true;
-
-    this.__internal__originalSafariAutomationToggle =
-      safariAutomation.__internal__toggleSafariAutomation;
-
-    safariAutomation.__internal__toggleSafariAutomation = function (...args) {
-      const result =
-        AutomationGameSpeed.__internal__originalSafariAutomationToggle.apply(
-          this,
-          args,
-        );
-
-      AutomationGameSpeed.__internal__restartSafariAutomationLoop();
-
-      return result;
-    };
-  }
-
-  /**
-   * @brief Returns the interval used
-   *        by our Auto Safari automation.
-   *
-   * Normal:
-   * x1   = 50 ms
-   * x2   = 25 ms
-   * x4   = 12.5 ms
-   * x10  = 5 ms
-   * x100 = 5 ms minimum
-   */
-  static __internal__getSafariAutomationInterval() {
-    const multiplier = this.__internal__getSafariMultiplier();
-
-    return Math.max(5, 50 / multiplier);
-  }
-
-  /**
-   * @brief Restarts the existing Auto Safari
-   *        loop at the selected speed.
-   *
-   * Does nothing when Auto Safari is disabled.
-   */
-  static __internal__restartSafariAutomationLoop() {
-    let safariAutomation = null;
-
-    if (typeof Automation !== "undefined" && Automation.Safari) {
-      safariAutomation = Automation.Safari;
-    } else if (typeof AutomationSafari !== "undefined") {
-      safariAutomation = AutomationSafari;
-    }
-
-    if (
-      !safariAutomation ||
-      safariAutomation.__internal__autoSafariLoop === null ||
-      typeof safariAutomation.__internal__safariAutomationLoop !== "function"
-    ) {
-      return;
-    }
-
-    clearInterval(safariAutomation.__internal__autoSafariLoop);
-
-    safariAutomation.__internal__autoSafariLoop = setInterval(
-      safariAutomation.__internal__safariAutomationLoop.bind(safariAutomation),
-      this.__internal__getSafariAutomationInterval(),
-    );
   }
 
   /*********************************************************************\
@@ -635,8 +415,8 @@ class AutomationGameSpeed {
       }
 
       /*
-       * Always execute the normal
-       * Pokéclicker game tick once.
+       * Always execute normal Pokéclicker
+       * game tick once.
        */
       const result = AutomationGameSpeed.__internal__originalGameTick.apply(
         this,
@@ -691,7 +471,7 @@ class AutomationGameSpeed {
 
         /*
          * Combat only:
-         * no DungeonRunner extra tick.
+         * no extra DungeonRunner tick.
          */
         for (let i = 1; i < multiplier; i++) {
           if (

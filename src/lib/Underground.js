@@ -120,7 +120,7 @@ class AutomationUnderground {
   }
 
   static __internal__getMainLoopIntervalMs() {
-    return this.__internal__isXPRushEnabled() ? 500 : 10000;
+    return this.__internal__isXPRushEnabled() ? 50 : 1000;
   }
 
   static __internal__startMainMiningLoop() {
